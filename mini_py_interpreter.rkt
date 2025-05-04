@@ -40,7 +40,6 @@
     (white-sp (whitespace) skip)
     (comment ("%" (arbno (not #\newline))) skip)
     (identifier (letter (arbno (or letter digit "?"))) symbol)
-    (string ("" (arbno (or letter digit whitespace)) "'") string)    
     (number (digit (arbno digit)) number)
     (number ("-" digit (arbno digit)) number)
     (number ((or "-" "") (arbno digit) "." (arbno digit)) number)
@@ -53,21 +52,51 @@
   '((program (expression) a-program)
     (expression (number) lit-exp)
     (expression (identifier) var-exp)
-    (expression (string) string-exp)
-    (expression (primitive "(" (separated-list expression ",")")") primapp-exp)
-    (expression ("if" expression "then" expression "else" expression) if-exp)
+    (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
+
+    (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
+    (expression ("if" bool-type "then" expression "else" expression "end") if-exp)
+    (expression ("for" list-type "in" list-type "do" expression "done") for-exp)
+    (expression ("while" bool-type "in" list-type "do" expression "done") while-exp)
+
     (expression ("let" (arbno identifier "=" expression) "in" expression)let-exp)
     (expression ("proc" "(" (arbno identifier) ")" expression) proc-exp)
     (expression ( "(" expression (arbno expression) ")") app-exp)
     (expression ("letrec" (arbno identifier "(" (separated-list identifier ",") ")" "=" expression)  "in" expression) letrec-exp)
-    (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
     (expression ("set" identifier "=" expression) set-exp)
+
     (expression ("var" (separated-list identifier "=" expression ",") "in" expression) var-decl-exp)
     (expression ("const" (separated-list identifier "=" expression ",") "in" expression) const-decl-exp)
     (expression ("rec" (separated-list identifier "=" expression ",") "in" expression) rec-decl-exp)
 
-    (expression ("True") true-bool-exp)
-    (expression ("False") false-bool-exp)
+    (expression (list-type) list-exp)
+    (expression (tuple-type) tuple-exp)
+    (expression (dict-type) dict-exp)
+    (expression (bool-type) bool-exp)
+
+    (list-type ("[" (separated-list expression ",") "]") lst)
+
+    (tuple-type ("tuple[" (separated-list expression ",") "]") tuple)
+
+    (dict-type ("{" identifier "=" expression (arbno ";" identifier "=" expression) "}") dict)
+    
+    (bool-type (pred-prim "(" expression "," expression ")") pred-prim-app)
+    (bool-type (bin-prim "(" bool-type "," bool-type ")") bin-prim-app)
+    (bool-type (un-prim "(" bool-type ")") un-prim-app)
+    (bool-type ("true") true-bool)
+    (bool-type ("false") false-bool)
+
+    (bin-prim ("and") and-prim)
+    (bin-prim ("or") or-prim)
+
+    (un-prim ("not") not-prim)
+
+    (pred-prim ("<") lower-prim)
+    (pred-prim (">") greater-prim)
+    (pred-prim ("<=") lower-equal-prim)
+    (pred-prim (">=") greater-equal-prim)
+    (pred-prim ("==") equal-prim)
+    (pred-prim ("!=") not-equal-prim)
 
     (primitive ("+") add-prim)
     (primitive ("-") substract-prim)
@@ -219,8 +248,8 @@
           (apply-primitive prim args)
         )
       )
-      (if-exp (test-exp true-exp false-exp)
-        (if (true-value? (eval-expression test-exp env))
+      (if-exp (bool-type true-exp false-exp)
+        (if (eval-bool-type bool-type env)
           (eval-expression true-exp env)
           (eval-expression false-exp env)
         )
@@ -257,13 +286,94 @@
           )
         )
       )
-      (var-decl-exp (ids rands body) ids)
-
-      (true-bool-exp () #t)
-      (false-bool-exp () #f)
-      (string-exp (str) str)
-
+      (var-decl-exp (ids rands body) 
+        (let ([args (eval-var-decl-exp-rands rands env)])
+          (eval-expression body (extend-env ids args env))
+        )
+      )
+      (list-exp (lst) lst)
+      (tuple-exp (tuple) tuple)
+      (dict-exp (dict) dict)
+      (bool-exp (exp) (eval-bool-type exp env))
       (else 'meFalta)
+    )
+  )
+)
+
+(define eval-bool-type
+  (lambda (exp env)
+    (cases bool-type exp
+      (pred-prim-app (pred-prim exp1 exp2) (eval-pred-prim pred-prim exp1 exp2 env))
+      (bin-prim-app (bin-prim type1 type2) (eval-bin-prim bin-prim type1 type2 env))
+      (un-prim-app (un-prim type) (eval-un-prim un-prim type env))
+      (true-bool () #t)
+      (false-bool () #f)
+    )
+  )
+)
+
+(define eval-pred-prim
+  (lambda (prim exp1 exp2 env)
+    (cases pred-prim prim
+      (lower-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (< val1 val2)
+        )
+      )
+      (greater-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (> val1 val2)
+        )
+      )
+      (lower-equal-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (<= val1 val2)
+        )
+      )
+      (greater-equal-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (>= val1 val2)
+        )
+      )
+      (equal-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (equal? val1 val2)
+        )
+      )
+      (not-equal-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (not (equal? val1 val2))
+        )
+      )
+    )
+  )
+)
+
+(define eval-bin-prim
+  (lambda (prim type1 type2 env)
+    (cases bin-prim prim
+      (and-prim () 
+        (let ([val1 (eval-bool-type type1 env)] [val2 (eval-bool-type type2 env)])
+          (and val1 val2)
+        )
+      )
+      (or-prim ()
+        (let ([val1 (eval-bool-type type1 env)] [val2 (eval-bool-type type2 env)])
+          (or val1 val2)
+        )
+      )
+    )
+  )
+)
+
+(define eval-un-prim
+  (lambda (prim type env)
+    (cases un-prim prim
+      (not-prim () 
+        (let ([val (eval-bool-type type env)])
+          (not val)
+        )
+      )
     )
   )
 )
@@ -278,7 +388,7 @@
   (lambda (rand env)
     (cases expression rand
       (var-exp (id)
-               (indirect-target
+              (indirect-target
                 (let ((ref (apply-env-ref env id)))
                   (cases target (primitive-deref ref)
                     (direct-target (expval) ref)
@@ -298,6 +408,15 @@
 (define eval-let-exp-rand
   (lambda (rand env)
     (direct-target (eval-expression rand env))))
+
+(define eval-var-decl-exp-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-var-decl-exp-rand x env))
+         rands)))
+
+(define eval-var-decl-exp-rand
+  (lambda (rand env)
+    (indirect-target (eval-expression rand env))))
 
 ;apply-primitive: <primitiva> <list-of-expression> -> numero
 (define apply-primitive
@@ -443,9 +562,11 @@
 (define setref!
   (lambda (ref expval)
     (let
-        ((ref (cases target (primitive-deref ref)
-                (direct-target (expval1) ref)
-                (indirect-target (ref1) ref1))))
+      ((ref 
+        (cases target (primitive-deref ref)
+          (direct-target (expval1) ref)
+          (indirect-target (ref1) ref1))
+      ))
       (primitive-setref! ref (direct-target expval)))))
 
 (define primitive-setref!
@@ -481,40 +602,7 @@
 ;******************************************************************************************
 ;Pruebas
 
-(show-the-datatypes)
-just-scan
-scan&parse
-(just-scan "add1(x)")
-(just-scan "add1(   x   )%cccc")
-(just-scan "add1(  +(5, x)   )%cccc")
-(just-scan "add1(  +(5, %ccccc x) ")
-(scan&parse "add1(x)")
-(scan&parse "add1(   x   )%cccc")
-(scan&parse "add1(  +(5, x)   )%cccc")
-(scan&parse "add1(  +(5, %cccc
-x)) ")
-(scan&parse "if -(x,4) then +(y,11) else *(y,10)")
-(scan&parse "let
-x = -(y,1)
-in
-let
-x = +(x,2)
-in
-add1(x)")
 
-(define caso1 (primapp-exp (incr-prim) (list (lit-exp 5))))
-(define exp-numero (lit-exp 8))
-(define exp-ident (var-exp 'c))
-(define exp-app (primapp-exp (add-prim) (list exp-numero exp-ident)))
-(define programa (a-program exp-app))
-(define una-expresion-dificil (primapp-exp (mult-prim)
-                                           (list (primapp-exp (incr-prim)
-                                                              (list (var-exp 'v)
-                                                                    (var-exp 'y)))
-                                                 (var-exp 'x)
-                                                 (lit-exp 200))))
-(define un-programa-dificil
-    (a-program una-expresion-dificil))
 
 ;(scan&parse)
 ;(interpretador)
