@@ -59,7 +59,7 @@
     (expression ("for" list-type "in" list-type "do" expression "done") for-exp)
     (expression ("while" bool-type "in" list-type "do" expression "done") while-exp)
 
-    (expression ("let" (arbno identifier "=" expression) "in" expression)let-exp)
+    (expression ("let" (arbno identifier "=" expression) "in" expression) let-exp)
     (expression ("proc" "(" (arbno identifier) ")" expression) proc-exp)
     (expression ( "(" expression (arbno expression) ")") app-exp)
     (expression ("letrec" (arbno identifier "(" (separated-list identifier ",") ")" "=" expression)  "in" expression) letrec-exp)
@@ -74,17 +74,35 @@
     (expression (dict-type) dict-exp)
     (expression (bool-type) bool-exp)
 
-    (list-type ("[" (separated-list expression ",") "]") lst)
+    (list-type ("[" expression (arbno "," expression) "]") non-empty-list)
+    (list-type ("empty-list") empty-list)
 
-    (tuple-type ("tuple[" (separated-list expression ",") "]") tuple)
+    (tuple-type ("tuple[" expression (arbno "," expression) "]") non-empty-tuple)
+    (tuple-type ("empty-tuple") empty-tuple)
 
-    (dict-type ("{" identifier "=" expression (arbno ";" identifier "=" expression) "}") dict)
+    (dict-type ("{" identifier "=" expression (arbno "," identifier "=" expression) "}") dict)
     
     (bool-type (pred-prim "(" expression "," expression ")") pred-prim-app)
     (bool-type (bin-prim "(" bool-type "," bool-type ")") bin-prim-app)
     (bool-type (un-prim "(" bool-type ")") un-prim-app)
     (bool-type ("true") true-bool)
     (bool-type ("false") false-bool)
+
+    (expression ("create-list(" expression (arbno "," expression) ")") create-list-prim)
+    (expression ("empty-list?(" list-type ")") empty-list?-prim)
+    (expression ("list?(" expression ")") list?-prim)
+    (expression ("list-append(" list-type "," expression ")") list-append-prim)
+    (expression ("list-head(" list-type ")") list-head-prim)
+    (expression ("list-tail(" list-type ")") list-tail-prim)
+    (expression ("ref-list(" list-type "," number ")") ref-list-prim)
+    (expression ("set-list(" list-type "," number "," expression ")") set-list-prim)
+
+    (expression ("create-tuple(" expression (arbno "," expression) ")") create-tuple-prim)
+    (expression ("empty-tuple?(" tuple-type ")") empty-tuple?-prim)
+    (expression ("tuple?(" expression ")") tuple?-prim)
+
+    (expression ("create-dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") create-dict-prim)
+    (expression ("dict?(" expression ")") dict?-prim)
 
     (bin-prim ("and") and-prim)
     (bin-prim ("or") or-prim)
@@ -291,11 +309,100 @@
           (eval-expression body (extend-env ids args env))
         )
       )
-      (list-exp (lst) lst)
+      (list-exp (l) l)
+      (create-list-prim (first rest) (non-empty-list first rest))
+      (empty-list?-prim (exp) 
+        (cases list-type exp
+          (empty-list () #t)
+          (else #f)
+        )
+      )
+      (list?-prim (exp) 
+        (cases expression exp
+          (list-exp (_) #t)
+          (else #f)
+        )
+      )
+      (list-head-prim (l) 
+        (cases list-type l
+          (non-empty-list (first rest) first)
+          (empty-list () (eopl:error 'list-head "Cannot apply 'list-head' to an empty list"))
+        )
+      )
+      (list-tail-prim (l)
+        (cases list-type l
+          (non-empty-list (first rest) rest)
+          (empty-list () (eopl:error 'list-tail "Cannot apply 'list-tail' to an empty list"))
+        )
+      )
+      (list-append-prim (l e)
+        (let ([list-type (eval-expression e env)])
+          (if (list-type? list-type)
+            (let ([first (list->first list-type)] [rest (list->rest list-type)])
+              (non-empty-list (list->first l) (append-aux (list->rest l) (cons first rest)))
+            )
+            (non-empty-list (list->first l) (append-aux (list->rest l) (list e)))
+          )  
+        )    
+      )
+      (ref-list-prim (l idx)
+        (if (exact-nonnegative-integer? (eval-expression idx env))
+          'hola
+          (eopl:error 'ref-list "Only positive integers are accepted as index")
+        )
+      )
       (tuple-exp (tuple) tuple)
-      (dict-exp (dict) dict)
+      (create-tuple-prim (first rest) (non-empty-tuple first rest))
+      (empty-tuple?-prim (exp) 
+        (cases tuple-type exp
+          (empty-tuple () #t)
+          (else #f)
+        )
+      )
+      (tuple?-prim (exp) 
+        (cases expression exp
+          (tuple-exp (_) #t)
+          (else #f)
+        )
+      )
+      (dict-exp (d) d)
+      (create-dict-prim (id rand ids rands) (dict id rand ids rands))
+      (dict?-prim (exp) 
+        (cases expression exp
+          (dict-exp (_) #t)
+          (else #f)
+        )
+      )
       (bool-exp (exp) (eval-bool-type exp env))
       (else 'meFalta)
+    )
+  )
+)
+
+
+
+(define list->first
+  (lambda (l)
+    (cases list-type l
+      (non-empty-list (first rest) first)
+      (empty-list () empty)
+    )
+  )
+)
+(define list->rest
+  (lambda (l)
+    (cases list-type l
+      (non-empty-list (first rest) rest)
+      (empty-list () empty)
+    )
+  )
+)
+
+(define eval-list-type
+  (lambda (l env)
+    (cases list-type l
+      (non-empty-list (first rest) (cons (eval-expression first env) (eval-primapp-exp-rands rest env)))
+      (empty-list () empty)
     )
   )
 )
@@ -531,7 +638,16 @@
 
 (define expval?
   (lambda (x)
-    (or (number? x) (procval? x))))
+    (cond
+      ([number? x] #t)
+      ([procval? x] #t)
+      ([list-type? x] #t)
+      ([dict-type? x] #t)
+      ([tuple-type? x] #t)
+      (else #f)
+    )
+  )
+)
 
 (define ref-to-direct-target?
   (lambda (x)
@@ -598,6 +714,25 @@
               (if (number? list-index-r)
                 (+ list-index-r 1)
                 #f))))))
+
+;; append-aux:
+;; Propósito:
+;; L1, L2 -> L1 + L2: Procedimiento que toma dos listas y
+;; retorna la concatenación de ambas.
+;; <lista> := ()
+;;         := (<valor-de-scheme> <lista>)
+
+(define append-aux
+  (lambda (L1 L2)
+    (if (null? L1) L2
+      (cons (car L1) (append-aux (cdr L1) L2))
+    )
+  )
+)
+
+(define (exact-nonnegative-integer? v)
+  (and (exact? v) (not (negative? v)))
+)
 
 ;******************************************************************************************
 ;Pruebas
