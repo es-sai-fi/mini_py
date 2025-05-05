@@ -55,9 +55,9 @@
     (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
 
     (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
-    (expression ("if" bool-type "then" expression "else" expression "end") if-exp)
+    (expression ("if" expression "then" expression "else" expression "end") if-exp)
     (expression ("for" list-type "in" list-type "do" expression "done") for-exp)
-    (expression ("while" bool-type "in" list-type "do" expression "done") while-exp)
+    (expression ("while" expression "in" list-type "do" expression "done") while-exp)
 
     (expression ("let" (arbno identifier "=" expression) "in" expression) let-exp)
     (expression ("proc" "(" (arbno identifier) ")" expression) proc-exp)
@@ -69,46 +69,62 @@
     (expression ("const" (separated-list identifier "=" expression ",") "in" expression) const-decl-exp)
     (expression ("rec" (separated-list identifier "=" expression ",") "in" expression) rec-decl-exp)
 
+    ;predefined data types
     (expression (list-type) list-exp)
     (expression (tuple-type) tuple-exp)
     (expression (dict-type) dict-exp)
     (expression (bool-type) bool-exp)
 
+    ;list def
     (list-type ("[" expression (arbno "," expression) "]") non-empty-list)
     (list-type ("empty-list") empty-list)
 
+    ;tuple def
     (tuple-type ("tuple[" expression (arbno "," expression) "]") non-empty-tuple)
     (tuple-type ("empty-tuple") empty-tuple)
 
+    ;dict def
     (dict-type ("{" identifier "=" expression (arbno "," identifier "=" expression) "}") dict)
     
+    ;bool def
+    (bool-type ("true") true-bool)
+    (bool-type ("false") false-bool)
+    
+    ;bools prims
     (bool-type (pred-prim "(" expression "," expression ")") pred-prim-app)
     (bool-type (bin-prim "(" bool-type "," bool-type ")") bin-prim-app)
     (bool-type (un-prim "(" bool-type ")") un-prim-app)
-    (bool-type ("true") true-bool)
-    (bool-type ("false") false-bool)
 
+    ;lists prims
     (expression ("create-list(" expression (arbno "," expression) ")") create-list-prim)
     (expression ("empty-list?(" list-type ")") empty-list?-prim)
     (expression ("list?(" expression ")") list?-prim)
-    (expression ("list-append(" list-type "," expression ")") list-append-prim)
-    (expression ("list-head(" list-type ")") list-head-prim)
-    (expression ("list-tail(" list-type ")") list-tail-prim)
-    (expression ("ref-list(" list-type "," number ")") ref-list-prim)
-    (expression ("set-list(" list-type "," number "," expression ")") set-list-prim)
+    (expression ("list-append(" expression "," expression ")") list-append-prim)
+    (expression ("list-head(" expression ")") list-head-prim)
+    (expression ("list-tail(" expression ")") list-tail-prim)
+    (expression ("ref-list(" expression "," expression ")") ref-list-prim)
+    (expression ("set-list(" expression "," expression "," expression ")") set-list-prim)
 
+    ;tuples prims
     (expression ("create-tuple(" expression (arbno "," expression) ")") create-tuple-prim)
     (expression ("empty-tuple?(" tuple-type ")") empty-tuple?-prim)
     (expression ("tuple?(" expression ")") tuple?-prim)
+    (expression ("tuple-head(" expression ")") tuple-head-prim)
+    (expression ("tuple-tail(" expression ")") tuple-tail-prim)
+    (expression ("ref-tuple(" expression "," expression ")") ref-tuple-prim)
 
+    ;dicts prims
     (expression ("create-dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") create-dict-prim)
     (expression ("dict?(" expression ")") dict?-prim)
 
+    ;binary bool prims
     (bin-prim ("and") and-prim)
     (bin-prim ("or") or-prim)
 
+    ;unary bool prims
     (un-prim ("not") not-prim)
 
+    ;predicate bool prims
     (pred-prim ("<") lower-prim)
     (pred-prim (">") greater-prim)
     (pred-prim ("<=") lower-equal-prim)
@@ -116,6 +132,7 @@
     (pred-prim ("==") equal-prim)
     (pred-prim ("!=") not-equal-prim)
 
+    ;int prims
     (primitive ("+") add-prim)
     (primitive ("-") substract-prim)
     (primitive ("*") mult-prim)
@@ -266,10 +283,15 @@
           (apply-primitive prim args)
         )
       )
-      (if-exp (bool-type true-exp false-exp)
-        (if (eval-bool-type bool-type env)
-          (eval-expression true-exp env)
-          (eval-expression false-exp env)
+      (if-exp (test-exp true-exp false-exp)
+        (cases expression test-exp
+          (bool-exp (bool-type) 
+            (if (eval-bool-type bool-type env)
+              (eval-expression true-exp env)
+              (eval-expression false-exp env)
+            )
+          )
+          (else (eopl:error 'if "Condition not a bool-exp"))
         )
       )
       (let-exp (ids rands body)
@@ -309,6 +331,8 @@
           (eval-expression body (extend-env ids args env))
         )
       )
+
+      ;lists
       (list-exp (l) l)
       (create-list-prim (first rest) (non-empty-list first rest))
       (empty-list?-prim (exp) 
@@ -323,34 +347,62 @@
           (else #f)
         )
       )
-      (list-head-prim (l) 
-        (cases list-type l
-          (non-empty-list (first rest) first)
-          (empty-list () (eopl:error 'list-head "Cannot apply 'list-head' to an empty list"))
-        )
+      (list-head-prim (e) 
+        (let ([l (eval-expression e env)])
+          (cases list-type l
+            (non-empty-list (first rest) (eval-expression first env))
+            (empty-list () (eopl:error 'list-head "Cannot apply 'list-head' to an empty list"))
+          )
+        )       
       )
-      (list-tail-prim (l)
-        (cases list-type l
-          (non-empty-list (first rest) rest)
-          (empty-list () (eopl:error 'list-tail "Cannot apply 'list-tail' to an empty list"))
-        )
-      )
-      (list-append-prim (l e)
-        (let ([list-type (eval-expression e env)])
-          (if (list-type? list-type)
-            (let ([first (list->first list-type)] [rest (list->rest list-type)])
-              (non-empty-list (list->first l) (append-aux (list->rest l) (cons first rest)))
+      (list-tail-prim (e)
+        (let ([l (eval-expression e env)])
+          (cases list-type l
+            (non-empty-list (first rest) 
+              (if (null? rest)
+                (empty-list)
+                (non-empty-list (car rest) (cdr rest))
+              )
             )
-            (non-empty-list (list->first l) (append-aux (list->rest l) (list e)))
-          )  
+            (empty-list () (eopl:error 'list-tail "Cannot apply 'list-tail' to an empty list"))
+          )
+        )
+      )
+      (list-append-prim (e1 e2)
+        (let ([eval-exp-1 (eval-expression e1 env)] [eval-exp-2 (eval-expression e2 env)] [id (var-exp->id e1)])
+          (cases list-type eval-exp-1
+            (non-empty-list (f1 r1) 
+              (if (list-type? eval-exp-2)
+                (let ([f2 (list->first eval-exp-2)] [r2 (list->rest eval-exp-2)])
+                  (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (cons f2 r2))))
+                )
+                (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (list e2))))
+              )
+            )
+            (empty-list () (setref! (apply-env-ref env id) (non-empty-list e2 empty)))
+          ) 
         )    
       )
-      (ref-list-prim (l idx)
-        (if (exact-nonnegative-integer? (eval-expression idx env))
-          'hola
-          (eopl:error 'ref-list "Only positive integers are accepted as index")
+      (ref-list-prim (e1 e2)
+        (let ([eval-exp-1 (eval-expression e1 env)] [idx (eval-expression e2 env)])
+          (cases list-type eval-exp-1
+            (non-empty-list (first rest) (ref-list/tuple-aux (cons first rest) idx env) )
+            (empty-list () (eopl:error 'ref-list "Index out of range"))
+          )  
         )
       )
+      (set-list-prim (e1 e2 e3)
+        (let ([eval-exp1 (eval-expression e1 env)] [idx (eval-expression e2 env)] [id (var-exp->id e1)])
+          (cases list-type eval-exp1
+            (non-empty-list (first rest) 
+              (setref! (apply-env-ref env id) (set-list-aux (cons first rest) idx e3 env))
+            )
+            (empty-list () (eopl:error 'set-list "Index out of range"))
+          )
+        )
+      )
+
+      ;tuples
       (tuple-exp (tuple) tuple)
       (create-tuple-prim (first rest) (non-empty-tuple first rest))
       (empty-tuple?-prim (exp) 
@@ -365,6 +417,37 @@
           (else #f)
         )
       )
+      (tuple-head-prim (e) 
+        (let ([t (eval-expression e env)])
+          (cases tuple-type t
+            (non-empty-tuple (first rest) (eval-expression first env))
+            (empty-tuple () (eopl:error 'tuple-head "Cannot apply 'tuple-head' to an empty tuple"))
+          )
+        )       
+      )
+      (tuple-tail-prim (e)
+        (let ([t (eval-expression e env)])
+          (cases tuple-type t
+            (non-empty-tuple (first rest) 
+              (if (null? rest)
+                (empty-tuple)
+                (non-empty-tuple (car rest) (cdr rest))
+              )
+            )
+            (empty-tuple () (eopl:error 'tuple-tail "Cannot apply 'tuple-tail' to an empty tuple"))
+          )
+        )
+      )
+      (ref-tuple-prim (e1 e2)
+        (let ([eval-exp-1 (eval-expression e1 env)] [idx (eval-expression e2 env)])
+          (cases tuple-type eval-exp-1
+            (non-empty-tuple (first rest) (ref-list/tuple-aux (cons first rest) idx env) )
+            (empty-tuple () (eopl:error 'ref-tuple "Index out of range"))
+          )  
+        )
+      )
+
+      ;dicts
       (dict-exp (d) d)
       (create-dict-prim (id rand ids rands) (dict id rand ids rands))
       (dict?-prim (exp) 
@@ -379,7 +462,48 @@
   )
 )
 
+(define set-list-aux
+  (lambda (l idx val env)
+    (if (null? l)
+      (eopl:error 'set-list "Index out of range")
+      (if (= idx 0)
+        (non-empty-list val (cdr l))
+        (non-empty-list (car l) (replace-nth-element (cdr l) idx val))
+      )
+    )
+  )
+)
 
+(define replace-nth-element
+  (lambda (l idx val)
+    (cond
+      ([null? l] (eopl:error 'set-list "Index out of range"))
+      ([= idx 0] (cons val (cdr l)))
+      (else (cons (car l) (replace-nth-element (cdr l) (- idx 1) val)))
+    )
+  )
+)
+
+(define ref-list/tuple-aux
+  (lambda (l idx env)
+    (if (null? l)
+      (eopl:error 'ref-list "Index out of range")
+      (if (= idx 0)
+        (eval-expression (car l) env)
+        (ref-list/tuple-aux (cdr l) (- idx 1) env)
+      )
+    )
+  )
+)
+
+(define var-exp->id
+  (lambda (var)
+    (cases expression var
+      (var-exp (id) id)
+      (else (eopl:error 'exp->id "Not a var-exp"))
+    )
+  )
+)
 
 (define list->first
   (lambda (l)
@@ -534,16 +658,6 @@
       (mult-prim () (* (car args) (cadr args)))
       (incr-prim () (+ (car args) 1))
       (decr-prim () (- (car args) 1)))))
-
-;true-value?: determina si un valor dado corresponde a un valor booleano falso o verdadero
-(define true-value?
-  (lambda (x)
-    (if (boolean? x)
-      x
-      (not (zero? x))
-    )
-  )
-)
 
 ;*******************************************************************************************
 ;Procedimientos
