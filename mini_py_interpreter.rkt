@@ -54,10 +54,12 @@
     (expression (identifier) var-exp)
     (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
 
+    (expression ("print(" expression ")") print-exp)
+
     (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
-    (expression ("if" expression "then" expression "else" expression "end") if-exp)
-    (expression ("for" list-type "in" list-type "do" expression "done") for-exp)
-    (expression ("while" expression "in" list-type "do" expression "done") while-exp)
+    (expression ("if" bool-type "then" expression "else" expression "end") if-exp)
+    (expression ("for" identifier "in" expression "do" expression "done") for-exp)
+    (expression ("while" bool-type "do" expression "done") while-exp)
 
     (expression ("let" (arbno identifier "=" expression) "in" expression) let-exp)
     (expression ("proc" "(" (arbno identifier) ")" expression) proc-exp)
@@ -280,20 +282,23 @@
     (cases expression exp
       (lit-exp (datum) datum)
       (var-exp (id) (apply-env env id))
+      (print-exp (exp) 
+        (cases expression exp
+          (list-exp (list-type) (print-list list-type env))
+          (tuple-exp (tuple-type) (print-tuple tuple-type env))
+          (dict-exp (dict-type) (print-dict dict-type env))
+          (else (display (eval-expression exp env)))
+        )
+      )
       (primapp-exp (prim rands)
         (let ((args (eval-primapp-exp-rands rands env)))
           (apply-primitive prim args)
         )
       )
-      (if-exp (test-exp true-exp false-exp)
-        (cases expression test-exp
-          (bool-exp (bool-type) 
-            (if (eval-bool-type bool-type env)
-              (eval-expression true-exp env)
-              (eval-expression false-exp env)
-            )
-          )
-          (else (eopl:error 'if "Condition not a bool-exp"))
+      (if-exp (bool-type true-exp false-exp)
+        (if (eval-bool-type bool-type env)
+          (eval-expression true-exp env)
+          (eval-expression false-exp env)
         )
       )
       (let-exp (ids rands body)
@@ -479,6 +484,47 @@
 
       ;booleans
       (bool-exp (exp) (eval-bool-type exp env))
+      
+      ;for cicle
+      (for-exp (identifier e2 e3)
+        (cases expression e2
+          (var-exp (id) 
+            (let* 
+              (
+                [list-type (apply-env env id)] 
+                [first (list->first list-type)] 
+                [rest (list->rest list-type)]
+                [vals (eval-let-exp-rands (cons first rest) env)]
+              )
+              (for-exp-aux identifier vals e3 env)
+            )
+          )
+          (list-exp (list-type) 
+            (let* 
+              (
+                [first (list->first list-type)] 
+                [rest (list->rest list-type)]
+                [vals (eval-let-exp-rands (cons first rest) env)]
+              )
+              (for-exp-aux identifier vals e3 env)
+            )
+          )
+          (else (eopl:error 'for "Not supported type for iterable"))
+        )
+      )
+
+      ;while cicle
+      (while-exp (bool-type body)
+        (let loop ([truth-val (eval-bool-type bool-type env)])
+          (if truth-val
+            (begin
+              (eval-expression body env)
+              (loop (eval-bool-type bool-type env))
+            )
+            'done
+          )
+        )
+      )
 
       (else 'meFalta)
     )
@@ -534,6 +580,83 @@
       (mult-prim () (* (car args) (cadr args)))
       (incr-prim () (+ (car args) 1))
       (decr-prim () (- (car args) 1)))))
+
+;*******************************************************************************************
+;for-exp
+
+; función auxiliar utilizada para la implementación de un ciclo for. En cada iteración se extiende el
+; ambiente con el id indicado y el valor correspondiente y se realiza la respectiva evaluación del
+; body en este nuevo ambiente, este proceso termina hasta que ya no hayan más valores en vals y por
+; ende no iteraciones a realizar.
+(define for-exp-aux
+  (lambda (id vals body env)
+    (if (null? vals)
+      'done
+      (begin 
+        body
+        (eval-expression body (extend-env (list id) (list (car vals)) env))
+        (display "\n")
+        (for-exp-aux id (cdr vals) body env)  
+      )
+    )
+  )
+)
+
+;*******************************************************************************************
+;print-exp
+
+; estas funciones hacen más amigable el lenguaje permitiendo mostrarle al usuario una traducción de la
+; sintaxis abstracta que se entrega al trabajar con listas/tuplas/diccionarios.
+
+; función auxiliar utilizada para la implementación de print en el case list-exp. "Imprime" una lista.
+(define print-list
+  (lambda (l env)
+    (cases list-type l
+      (non-empty-list (first rest) (display (eval-primapp-exp-rands (cons first rest) env)))
+      (empty-list () (display 'empty-list))
+    )
+  )
+)
+
+; función auxiliar utilizada para la implementación de print en el case tuple-exp. "Imprime" una tupla.
+(define print-tuple
+  (lambda (t env)
+    (cases tuple-type t
+      (non-empty-tuple (first rest) (display (eval-primapp-exp-rands (cons first rest) env)))
+      (empty-tuple () (display 'empty-tuple))
+    )
+  )
+)
+
+; función auxiliar utilizada para la implementación de print en el case dict-exp. "Imprime" un dict.
+(define print-dict
+  (lambda (d env)
+    (cases dict-type d
+      (dict (key val keys vals) 
+        (display 
+          (append-aux 
+            (list (list key (eval-expression val env))) 
+            (print-rest-dict-pairs keys vals env)
+          )
+        )
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para imprimir los keys y vals de un diccionario después del primer par
+; llave, valor.
+(define print-rest-dict-pairs
+  (lambda (keys vals env)
+    (if (null? keys)
+      empty
+      (cons 
+        (list (car keys) (eval-expression (car vals) env)) 
+        (print-rest-dict-pairs (cdr keys) (cdr vals) env)
+      )
+    )
+  )
+)
 
 ;*******************************************************************************************
 ;Bools
