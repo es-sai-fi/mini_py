@@ -116,6 +116,8 @@
     ;dicts prims
     (expression ("create-dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") create-dict-prim)
     (expression ("dict?(" expression ")") dict?-prim)
+    (expression ("ref-dict(" expression "," expression ")") ref-dict-prim)
+    (expression ("set-dict(" expression "," expression "," expression ")") set-dict-prim)
 
     ;binary bool prims
     (bin-prim ("and") and-prim)
@@ -315,7 +317,6 @@
       (set-exp (id rhs-exp)
         (begin
           (setref! (apply-env-ref env id) (eval-expression rhs-exp env))
-          "setted"
         )
       )     
       (begin-exp (exp exps)
@@ -332,7 +333,7 @@
         )
       )
 
-      ;lists
+      ;list and list prims
       (list-exp (l) l)
       (create-list-prim (first rest) (non-empty-list first rest))
       (empty-list?-prim (exp) 
@@ -395,14 +396,14 @@
         (let ([eval-exp1 (eval-expression e1 env)] [idx (eval-expression e2 env)] [id (var-exp->id e1)])
           (cases list-type eval-exp1
             (non-empty-list (first rest) 
-              (setref! (apply-env-ref env id) (set-list-aux (cons first rest) idx e3 env))
+              (setref! (apply-env-ref env id) (set-list-aux (cons first rest) idx e3))
             )
             (empty-list () (eopl:error 'set-list "Index out of range"))
           )
         )
       )
 
-      ;tuples
+      ;tuple and tuple prims
       (tuple-exp (tuple) tuple)
       (create-tuple-prim (first rest) (non-empty-tuple first rest))
       (empty-tuple?-prim (exp) 
@@ -447,7 +448,7 @@
         )
       )
 
-      ;dicts
+      ;dict and dict prims
       (dict-exp (d) d)
       (create-dict-prim (id rand ids rands) (dict id rand ids rands))
       (dict?-prim (exp) 
@@ -456,155 +457,30 @@
           (else #f)
         )
       )
+      (ref-dict-prim (e1 e2)
+        (let ([eval-exp-1 (eval-expression e1 env)] [search-key (var-exp->id e2)])
+          (cases dict-type eval-exp-1
+            (dict (key val keys vals) 
+              (if (eqv? search-key key)
+                (eval-expression val env)
+                (ref-dict-aux keys vals search-key env)
+              )
+            )
+          )
+        )   
+      )
+      (set-dict-prim (e1 e2 e3)
+        (let ([eval-exp-1 (eval-expression e1 env)] [search-key (var-exp->id e2)] [id (var-exp->id e1)])
+          (cases dict-type eval-exp-1
+            (dict (key val keys vals) (setref! (apply-env-ref env id) (set-dict-aux key val keys vals search-key e3)))
+          )
+        )
+      )
+
+      ;booleans
       (bool-exp (exp) (eval-bool-type exp env))
+
       (else 'meFalta)
-    )
-  )
-)
-
-(define set-list-aux
-  (lambda (l idx val env)
-    (if (null? l)
-      (eopl:error 'set-list "Index out of range")
-      (if (= idx 0)
-        (non-empty-list val (cdr l))
-        (non-empty-list (car l) (replace-nth-element (cdr l) idx val))
-      )
-    )
-  )
-)
-
-(define replace-nth-element
-  (lambda (l idx val)
-    (cond
-      ([null? l] (eopl:error 'set-list "Index out of range"))
-      ([= idx 0] (cons val (cdr l)))
-      (else (cons (car l) (replace-nth-element (cdr l) (- idx 1) val)))
-    )
-  )
-)
-
-(define ref-list/tuple-aux
-  (lambda (l idx env)
-    (if (null? l)
-      (eopl:error 'ref-list "Index out of range")
-      (if (= idx 0)
-        (eval-expression (car l) env)
-        (ref-list/tuple-aux (cdr l) (- idx 1) env)
-      )
-    )
-  )
-)
-
-(define var-exp->id
-  (lambda (var)
-    (cases expression var
-      (var-exp (id) id)
-      (else (eopl:error 'exp->id "Not a var-exp"))
-    )
-  )
-)
-
-(define list->first
-  (lambda (l)
-    (cases list-type l
-      (non-empty-list (first rest) first)
-      (empty-list () empty)
-    )
-  )
-)
-(define list->rest
-  (lambda (l)
-    (cases list-type l
-      (non-empty-list (first rest) rest)
-      (empty-list () empty)
-    )
-  )
-)
-
-(define eval-list-type
-  (lambda (l env)
-    (cases list-type l
-      (non-empty-list (first rest) (cons (eval-expression first env) (eval-primapp-exp-rands rest env)))
-      (empty-list () empty)
-    )
-  )
-)
-
-(define eval-bool-type
-  (lambda (exp env)
-    (cases bool-type exp
-      (pred-prim-app (pred-prim exp1 exp2) (eval-pred-prim pred-prim exp1 exp2 env))
-      (bin-prim-app (bin-prim type1 type2) (eval-bin-prim bin-prim type1 type2 env))
-      (un-prim-app (un-prim type) (eval-un-prim un-prim type env))
-      (true-bool () #t)
-      (false-bool () #f)
-    )
-  )
-)
-
-(define eval-pred-prim
-  (lambda (prim exp1 exp2 env)
-    (cases pred-prim prim
-      (lower-prim () 
-        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (< val1 val2)
-        )
-      )
-      (greater-prim () 
-        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (> val1 val2)
-        )
-      )
-      (lower-equal-prim () 
-        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (<= val1 val2)
-        )
-      )
-      (greater-equal-prim () 
-        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (>= val1 val2)
-        )
-      )
-      (equal-prim () 
-        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (equal? val1 val2)
-        )
-      )
-      (not-equal-prim () 
-        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (not (equal? val1 val2))
-        )
-      )
-    )
-  )
-)
-
-(define eval-bin-prim
-  (lambda (prim type1 type2 env)
-    (cases bin-prim prim
-      (and-prim () 
-        (let ([val1 (eval-bool-type type1 env)] [val2 (eval-bool-type type2 env)])
-          (and val1 val2)
-        )
-      )
-      (or-prim ()
-        (let ([val1 (eval-bool-type type1 env)] [val2 (eval-bool-type type2 env)])
-          (or val1 val2)
-        )
-      )
-    )
-  )
-)
-
-(define eval-un-prim
-  (lambda (prim type env)
-    (cases un-prim prim
-      (not-prim () 
-        (let ([val (eval-bool-type type env)])
-          (not val)
-        )
-      )
     )
   )
 )
@@ -658,6 +534,207 @@
       (mult-prim () (* (car args) (cadr args)))
       (incr-prim () (+ (car args) 1))
       (decr-prim () (- (car args) 1)))))
+
+;*******************************************************************************************
+;Bools
+
+; función auxixiliar utilizada para implementar procesar types booleanos.
+(define eval-bool-type
+  (lambda (exp env)
+    (cases bool-type exp
+      (pred-prim-app (pred-prim exp1 exp2) (eval-pred-prim pred-prim exp1 exp2 env))
+      (bin-prim-app (bin-prim type1 type2) (eval-bin-prim bin-prim type1 type2 env))
+      (un-prim-app (un-prim type) (eval-un-prim un-prim type env))
+      (true-bool () #t)
+      (false-bool () #f)
+    )
+  )
+)
+
+; función auxiliar utilizada para evaluar predicados.
+(define eval-pred-prim
+  (lambda (prim exp1 exp2 env)
+    (cases pred-prim prim
+      (lower-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (< val1 val2)
+        )
+      )
+      (greater-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (> val1 val2)
+        )
+      )
+      (lower-equal-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (<= val1 val2)
+        )
+      )
+      (greater-equal-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (>= val1 val2)
+        )
+      )
+      (equal-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (equal? val1 val2)
+        )
+      )
+      (not-equal-prim () 
+        (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
+          (not (equal? val1 val2))
+        )
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para evaluar valores mediante primitivas booleanas binarias.
+(define eval-bin-prim
+  (lambda (prim type1 type2 env)
+    (cases bin-prim prim
+      (and-prim () 
+        (let ([val1 (eval-bool-type type1 env)] [val2 (eval-bool-type type2 env)])
+          (and val1 val2)
+        )
+      )
+      (or-prim ()
+        (let ([val1 (eval-bool-type type1 env)] [val2 (eval-bool-type type2 env)])
+          (or val1 val2)
+        )
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para evaluar valores mediante primitivas booleanas unarias.
+(define eval-un-prim
+  (lambda (prim type env)
+    (cases un-prim prim
+      (not-prim () 
+        (let ([val (eval-bool-type type env)])
+          (not val)
+        )
+      )
+    )
+  )
+)
+
+;*******************************************************************************************
+;Lists/Tuples
+
+; función auxiliar utilizada para implementar la primitiva ref-list. Retorna el valor en el índice
+; indicado.
+(define ref-list/tuple-aux
+  (lambda (l idx env)
+    (if (null? l)
+      (eopl:error 'ref-list "Index out of range")
+      (if (= idx 0)
+        (eval-expression (car l) env)
+        (ref-list/tuple-aux (cdr l) (- idx 1) env)
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para implementar la primitiva set-list. Retorna una nueva lista donde el
+; valor en el índice indicado es reemplazado por el nuevo valor indicado.
+(define set-list-aux
+  (lambda (l idx val)
+    (if (null? l)
+      (eopl:error 'set-list "Index out of range")
+      (if (= idx 0)
+        (non-empty-list val (cdr l))
+        (non-empty-list (car l) (replace-nth-element (cdr l) idx val))
+      )
+    )
+  )
+)
+
+; función auxiliar que reemplaza el n-ésimo elemento de una lista por el valor indicado.
+(define replace-nth-element
+  (lambda (l idx val)
+    (cond
+      ([null? l] (eopl:error 'set-list "Index out of range"))
+      ([= idx 0] (cons val (cdr l)))
+      (else (cons (car l) (replace-nth-element (cdr l) (- idx 1) val)))
+    )
+  )
+)
+
+;*******************************************************************************************
+;Dicts
+
+; función auxiliar utilizada para implementar la primitiva ref-dict. Retorna el valor asociado a la
+; llave indicada.
+(define ref-dict-aux
+  (lambda (ids rands search-id env)
+    (if (null? ids)
+      (eopl:error 'ref-dict "Key not found")
+      (if (eqv? search-id (car ids))
+        (eval-expression (car rands) env)
+        (ref-dict-aux (cdr ids) (cdr rands) search-id env)
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para implementar la primitiva set-dict. Retorna un nuevo dict donde
+; la llave indicada es reemplazada por el nuevo valor indicado.
+(define set-dict-aux
+  (lambda (key val keys vals search-key new-val)
+    (cond 
+      ([eqv? search-key key] (dict key new-val keys vals))
+      ([null? keys] (eopl:error 'set-dict "Key not found"))
+      (else (dict key val keys (replace-dict-vals-element keys vals search-key new-val)))
+    )
+  )
+)
+
+; función auxiliar que recorre desde la segunda key hasta la última y reemplaza el valor 
+; correspondiente a esa key con el nuevo valor.
+(define replace-dict-vals-element
+  (lambda (keys vals search-key new-val)
+    (cond
+      ([null? keys] (eopl:error 'set-dict "Key not found"))
+      ([eqv? search-key (car keys)] (cons new-val (cdr vals)))
+      (else (cons (car vals) (replace-dict-vals-element (cdr keys) (cdr vals) search-key new-val)))
+    )
+  )
+)
+
+;*******************************************************************************************
+;Extractors
+
+; extractor que a partir de una expresión tipo var-exp retorna el símbolo de esta.
+(define var-exp->id
+  (lambda (var)
+    (cases expression var
+      (var-exp (id) id)
+      (else (eopl:error 'exp->id "Not a var-exp"))
+    )
+  )
+)
+
+; extractor que a partir de un list-type retorna el primer elemento de este.
+(define list->first
+  (lambda (l)
+    (cases list-type l
+      (non-empty-list (first rest) first)
+      (empty-list () empty)
+    )
+  )
+)
+
+; extractor que a partir de un list-type retorna todos los elementos menos el primero de este.
+(define list->rest
+  (lambda (l)
+    (cases list-type l
+      (non-empty-list (first rest) rest)
+      (empty-list () empty)
+    )
+  )
+)
 
 ;*******************************************************************************************
 ;Procedimientos
