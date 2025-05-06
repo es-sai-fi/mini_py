@@ -835,6 +835,7 @@
       ([list-type? x] #t)
       ([dict-type? x] #t)
       ([tuple-type? x] #t)
+      ([bool-type? x] #t)
       (else #f)
     )
   )
