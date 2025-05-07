@@ -302,7 +302,7 @@
           (
             [proc (eval-expression rator env)]
             [args (eval-rands rands env)]
-            [const-tags (make-list (length args) #t)]
+            [const-tags (get-const-tags rands)]
           )
           (if (procval? proc)
             (apply-procedure proc args const-tags)
@@ -387,12 +387,23 @@
             (non-empty-list (f1 r1) 
               (if (list-type? eval-exp-2)
                 (let ([f2 (list-type->first eval-exp-2)] [r2 (list-type->rest eval-exp-2)])
-                  (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (cons f2 r2))) env)
+                  (begin
+                    (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (cons f2 r2))) env)
+                    'setted
+                  )
                 )
-                (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (list e2))) env)
+                (begin
+                  (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (list e2))) env)
+                  'setted
+                )
               )
             )
-            (empty-list () (setref! (apply-env-ref env id) (non-empty-list e2 empty)) env)
+            (empty-list () 
+              (begin
+                (setref! (apply-env-ref env id) (non-empty-list e2 empty) env) 
+                'setted
+              )
+            )
           ) 
         )    
       )
@@ -408,7 +419,10 @@
         (let ([eval-exp1 (eval-expression e1 env)] [idx (eval-expression e2 env)] [id (var-exp->id e1)])
           (cases list-type eval-exp1
             (non-empty-list (first rest) 
-              (setref! (apply-env-ref env id) (set-list-aux (cons first rest) idx e3) env)
+              (begin
+                (setref! (apply-env-ref env id) (set-list-aux (cons first rest) idx e3) env)
+                'setted
+              )
             )
             (empty-list () (eopl:error 'set-list "Index out of range"))
           )
@@ -484,7 +498,12 @@
       (set-dict-prim (e1 search-key e2)
         (let ([eval-exp-1 (eval-expression e1 env)] [id (var-exp->id e1)])
           (cases dict-type eval-exp-1
-            (dict (key val keys vals) (setref! (apply-env-ref env id) (set-dict-aux key val keys vals search-key e2)) env)
+            (dict (key val keys vals) 
+              (begin
+                (setref! (apply-env-ref env id) (set-dict-aux key val keys vals search-key e2) env) 
+                'setted
+              )
+            )
           )
         )
       )
@@ -573,6 +592,22 @@
       (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
       (else (direct-target (eval-expression rand env)))
     )  
+  )
+)
+
+(define get-const-tags
+  (lambda (rands)
+    (map (lambda (r) (get-const-tag r)) rands)
+  )
+)
+    
+(define get-const-tag
+  (lambda (rand)
+    (cases expression rand
+      (list-exp (l) #t)
+      (dict-exp (d) #t)
+      (else #f)
+    )
   )
 )
 
@@ -889,14 +924,22 @@
   (indirect-target (ref ref-to-direct-target?)))
 
 (define-datatype reference reference?
-  (a-ref (position integer?) (vec vector?))
+  (a-ref (position integer?) (vec vector?) (const-tags vector?))
 )
 
 ; extractor que a partir de una referencia retorna la posición de esta.
 (define ref->pos
   (lambda (ref)
     (cases reference ref
-      (a-ref (pos vec) pos)
+      (a-ref (pos vec const-tags) pos)
+    )
+  )
+)
+
+(define ref->const-tags
+  (lambda (ref)
+    (cases reference ref
+      (a-ref (pos vec const-tags) const-tags)
     )
   )
 )
@@ -989,7 +1032,7 @@
       (extended-env-record (syms vals const-tags env)
         (let ((pos (rib-find-position sym syms)))
           (if (number? pos)
-            (a-ref pos vals)
+            (a-ref pos vals const-tags)
             (apply-env-ref env sym)
           )
         )
@@ -1020,7 +1063,7 @@
     (and 
       (reference? x)
       (cases reference x
-        (a-ref (pos vec)
+        (a-ref (pos vec const-tags)
           (cases target (vector-ref vec pos)
             (direct-target (v) #t)
             (indirect-target (v) #f)
@@ -1048,7 +1091,7 @@
 (define primitive-deref
   (lambda (ref)
     (cases reference ref
-      (a-ref (pos vec) (vector-ref vec pos))
+      (a-ref (pos vec const-tags) (vector-ref vec pos))
     )
   )
 )
@@ -1057,14 +1100,15 @@
   (lambda (ref expval env)
     (let*
       (
-        (ref 
+        [ref 
           (cases target (primitive-deref ref)
             (direct-target (expval1) ref)
             (indirect-target (ref1) ref1)
           )
-        )
-        (pos (ref->pos ref))
-        (constant? (vector-ref (env->const-tags env) pos))
+        ]
+        [pos (ref->pos ref)]
+        [const-tags (ref->const-tags ref)]
+        [constant? (vector-ref const-tags pos)]
       )
       (if constant?
         (eopl:error 'setref! "Can't modify the state of a constant var")
@@ -1077,7 +1121,7 @@
 (define primitive-setref!
   (lambda (ref val)
     (cases reference ref
-      (a-ref (pos vec) (vector-set! vec pos val))
+      (a-ref (pos vec const-tags) (vector-set! vec pos val))
     )
   )
 )
