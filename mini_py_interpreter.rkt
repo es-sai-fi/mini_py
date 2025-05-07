@@ -64,12 +64,11 @@
     (expression ("let" (arbno identifier "=" expression) "in" expression) let-exp)
     (expression ("proc" "(" (arbno identifier) ")" expression) proc-exp)
     (expression ( "(" expression (arbno expression) ")") app-exp)
-    (expression ("letrec" (arbno identifier "(" (separated-list identifier ",") ")" "=" expression)  "in" expression) letrec-exp)
     (expression ("set" identifier "=" expression) set-exp)
 
     (expression ("var" (separated-list identifier "=" expression ",") "in" expression) var-decl-exp)
     (expression ("const" (separated-list identifier "=" expression ",") "in" expression) const-decl-exp)
-    (expression ("rec" (separated-list identifier "=" expression ",") "in" expression) rec-decl-exp)
+    (expression ("rec" (arbno identifier "(" (separated-list identifier ",") ")" "=" expression)  "in" expression) rec-decl-exp)
 
     ;predefined data types
     (expression (list-type) list-exp)
@@ -304,7 +303,7 @@
           (
             [proc (eval-expression rator env)]
             [args (eval-rands rands env)]
-            [const-tags (make-list (length args) #f)]
+            [const-tags (make-list (length args) #t)]
           )
           (if (procval? proc)
             (apply-procedure proc args const-tags)
@@ -312,9 +311,7 @@
           )
         )
       )
-      (letrec-exp (proc-names idss bodies letrec-body)
-        (eval-expression letrec-body (extend-env-recursively proc-names idss bodies env))
-      )
+
       (set-exp (id rhs-exp)
         (begin
           (setref! (apply-env-ref env id) (eval-expression rhs-exp env) env)
@@ -329,6 +326,8 @@
           )
         )
       )
+      
+      ;decls
       (var-decl-exp (ids rands body) 
         (let* ([args (eval-let/var/const-exp-rands rands env)] [const-tags (make-list (length args) #f)])
           (eval-expression body (extend-env ids args const-tags env))
@@ -338,6 +337,9 @@
         (let* ([args (eval-let/var/const-exp-rands rands env)] [const-tags (make-list (length args) #t)])
           (eval-expression body (extend-env ids args const-tags env))
         )
+      )
+      (rec-decl-exp (proc-names idss bodies rec-body)
+        (eval-expression rec-body (extend-env-recursively proc-names idss bodies env))
       )
 
       ;list and list prims
@@ -947,7 +949,7 @@
 (define extend-env-recursively
   (lambda (proc-names idss bodies old-env)
     (let ((len (length proc-names)))
-      (let ((vec (make-vector len)) (const-tags (make-vector len #f)))
+      (let ((vec (make-vector len)) (const-tags (make-vector len #t)))
         (let ((env (extended-env-record proc-names vec const-tags old-env)))
           (for-each
             (lambda (pos ids body)
