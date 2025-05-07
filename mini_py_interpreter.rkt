@@ -52,7 +52,7 @@
   '((program (expression) a-program)
     (expression (number) lit-exp)
     (expression (identifier) var-exp)
-    (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
+    (expression (primitive "(" (arbno expression) ")") primapp-exp)
 
     (expression ("print(" expression ")") print-exp)
 
@@ -62,7 +62,7 @@
     (expression ("while" bool-type "do" expression "done") while-exp)
 
     (expression ("let" (arbno identifier "=" expression) "in" expression) let-exp)
-    (expression ("proc" "(" (arbno identifier) ")" expression) proc-exp)
+    (expression ("proc(" (separated-list identifier ",") ")" expression) proc-exp)
     (expression ( "(" expression (arbno expression) ")") app-exp)
     (expression ("set" identifier "=" expression) set-exp)
 
@@ -77,48 +77,48 @@
     (expression (bool-type) bool-exp)
 
     ;list def
-    (list-type ("[" expression (arbno "," expression) "]") non-empty-list)
+    (list-type ("list(" expression (arbno "," expression) ")") non-empty-list)
     (list-type ("empty-list") empty-list)
 
     ;tuple def
-    (tuple-type ("tuple[" expression (arbno "," expression) "]") non-empty-tuple)
+    (tuple-type ("tuple(" expression (arbno "," expression) ")") non-empty-tuple)
     (tuple-type ("empty-tuple") empty-tuple)
 
     ;dict def
-    (dict-type ("{" identifier "=" expression (arbno "," identifier "=" expression) "}") dict)
+    (dict-type ("dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") dict)
     
     ;bool def
     (bool-type ("true") true-bool)
     (bool-type ("false") false-bool)
     
     ;bools prims
-    (bool-type (pred-prim "(" expression "," expression ")") pred-prim-app)
-    (bool-type (bin-prim "(" bool-type "," bool-type ")") bin-prim-app)
+    (bool-type (pred-prim "(" expression expression ")") pred-prim-app)
+    (bool-type (bin-prim "(" bool-type bool-type ")") bin-prim-app)
     (bool-type (un-prim "(" bool-type ")") un-prim-app)
 
     ;lists prims
-    (expression ("create-list(" expression (arbno "," expression) ")") create-list-prim)
-    (expression ("empty-list?(" list-type ")") empty-list?-prim)
-    (expression ("list?(" expression ")") list?-prim)
-    (expression ("list-append(" expression "," expression ")") list-append-prim)
-    (expression ("list-head(" expression ")") list-head-prim)
-    (expression ("list-tail(" expression ")") list-tail-prim)
-    (expression ("ref-list(" expression "," expression ")") ref-list-prim)
-    (expression ("set-list(" expression "," expression "," expression ")") set-list-prim)
+    (expression ("create-list" "(" expression (arbno "," expression) ")") create-list-prim)
+    (expression ("empty-list?" "(" list-type ")") empty-list?-prim)
+    (expression ("list?" "(" expression ")") list?-prim)
+    (expression ("list-append" "(" expression "," expression ")") list-append-prim)
+    (expression ("list-head" "(" expression ")") list-head-prim)
+    (expression ("list-tail" "(" expression ")") list-tail-prim)
+    (expression ("ref-list" "(" expression "," expression ")") ref-list-prim)
+    (expression ("set-list" "(" expression "," expression "," expression ")") set-list-prim)
 
     ;tuples prims
-    (expression ("create-tuple(" expression (arbno "," expression) ")") create-tuple-prim)
-    (expression ("empty-tuple?(" tuple-type ")") empty-tuple?-prim)
-    (expression ("tuple?(" expression ")") tuple?-prim)
-    (expression ("tuple-head(" expression ")") tuple-head-prim)
-    (expression ("tuple-tail(" expression ")") tuple-tail-prim)
-    (expression ("ref-tuple(" expression "," expression ")") ref-tuple-prim)
+    (expression ("create-tuple" "(" expression (arbno "," expression) ")") create-tuple-prim)
+    (expression ("empty-tuple?" "(" tuple-type ")") empty-tuple?-prim)
+    (expression ("tuple?" "(" expression ")") tuple?-prim)
+    (expression ("tuple-head" "(" expression ")") tuple-head-prim)
+    (expression ("tuple-tail" "(" expression ")") tuple-tail-prim)
+    (expression ("ref-tuple" "(" expression "," expression ")") ref-tuple-prim)
 
     ;dicts prims
-    (expression ("create-dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") create-dict-prim)
-    (expression ("dict?(" expression ")") dict?-prim)
-    (expression ("ref-dict(" expression "," identifier ")") ref-dict-prim)
-    (expression ("set-dict(" expression "," identifier "," expression ")") set-dict-prim)
+    (expression ("create-dict" "(" identifier "=" expression (arbno "," identifier "=" expression) ")") create-dict-prim)
+    (expression ("dict?" "(" expression ")") dict?-prim)
+    (expression ("ref-dict" "(" expression "," identifier ")") ref-dict-prim)
+    (expression ("set-dict" "(" expression "," identifier "," expression ")") set-dict-prim)
 
     ;binary bool prims
     (bin-prim ("and") and-prim)
@@ -296,8 +296,7 @@
           (eval-expression body (extend-env ids args const-tags env))
         )
       )
-      (proc-exp (ids body) (closure ids body env)
-      )
+      (proc-exp (ids body) (closure ids body env))
       (app-exp (rator rands)
         (let* 
           (
