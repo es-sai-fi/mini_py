@@ -561,19 +561,29 @@
 ; lista de operandos (expresiones)
 (define eval-rands
   (lambda (rands env)
-    (map (lambda (x) (eval-rand x env)) rands)))
+    (map (lambda (x) (eval-rand x env)) rands)
+  )
+)
 
 (define eval-rand
   (lambda (rand env)
     (cases expression rand
       (var-exp (id)
-              (indirect-target
-                (let ((ref (apply-env-ref env id)))
-                  (cases target (primitive-deref ref)
-                    (direct-target (expval) ref)
-                    (indirect-target (ref1) ref1)))))
-      (else
-       (direct-target (eval-expression rand env))))))
+        (indirect-target
+          (let ((ref (apply-env-ref env id)))
+            (cases target (primitive-deref ref)
+              (direct-target (expval) ref)
+              (indirect-target (ref1) ref1)
+            )
+          )
+        )
+      )
+      (list-exp (l) (indirect-target (eval-expression rand env)))
+      (dict-exp (d) (indirect-target (eval-expression rand env)))
+      (else (direct-target (eval-expression rand env)))
+    )
+  )
+)
 
 (define eval-primapp-exp-rands
   (lambda (rands env)
@@ -604,9 +614,9 @@
 (define get-const-tag
   (lambda (rand)
     (cases expression rand
-      (list-exp (l) #t)
-      (dict-exp (d) #t)
-      (else #f)
+      (list-exp (l) #f)
+      (dict-exp (d) #f)
+      (else #t)
     )
   )
 )
@@ -905,7 +915,9 @@
   (closure
    (ids (list-of symbol?))
    (body expression?)
-   (env environment?)))
+   (env environment?)
+  )
+)
 
 ;apply-procedure: evalua el cuerpo de un procedimientos en el ambiente extendido correspondiente
 (define apply-procedure
@@ -936,6 +948,8 @@
   )
 )
 
+; extractor que a partir de una referencia retorna el vector de const-tags asociado al env en el que
+; se encuentra la referencia.
 (define ref->const-tags
   (lambda (ref)
     (cases reference ref
@@ -1172,6 +1186,8 @@
   )
 )
 
+; función auxiliar que crea una lista de longitud n donde cada elemento toma el valor del val
+; ingresado.
 (define make-list
   (lambda (len val)
     (if (= len 0)
