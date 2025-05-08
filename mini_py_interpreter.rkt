@@ -302,7 +302,7 @@
           (
             [proc (eval-expression rator env)]
             [args (eval-rands rands env)]
-            [const-tags (get-const-tags rands)]
+            [const-tags (make-list (length args) #f)]
           )
           (if (procval? proc)
             (apply-procedure proc args const-tags)
@@ -969,15 +969,6 @@
     (vec vector?)
     (const-tags vector?)
     (env environment?)
-  )
-)
-
-(define env->const-tags
-  (lambda (env)
-    (cases environment env
-      (empty-env-record () (eopl:error 'env->const-tags "No constant tags for empty-env"))
-      (extended-env-record (syms vec const-tags env) const-tags)
-    )
   )
 )
 
