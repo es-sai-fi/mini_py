@@ -175,19 +175,27 @@
     (expression (number) lit-exp)
     (expression (identifier) var-exp)
 
+    (expression ("print(" expression ")") print-exp)
+    
+    ;int prim app
     (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
 
-    (expression ("print(" expression ")") print-exp)
-
-    (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
+    ;conditionals
     (expression ("if" bool-type "then" expression "else" expression "end") if-exp)
+
+    ;cicles
     (expression ("for" identifier "in" expression "do" expression "done") for-exp)
     (expression ("while" bool-type "do" expression "done") while-exp)
 
+    ;procs
+    (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
     (expression ("proc(" (separated-list identifier ",") ")" expression) proc-exp)
     (expression ( "(" expression (separated-list expression ",") ")") app-exp)
+    
+    ;seq exps
     (expression ("set" identifier "=" expression) set-exp)
-
+    
+    ;decls
     (expression ("var" (separated-list identifier "=" expression ",") "in" expression) var-decl-exp)
     (expression ("const" (separated-list identifier "=" expression ",") "in" expression) const-decl-exp)
     (expression ("rec" (arbno identifier "(" (separated-list identifier ",") ")" "=" expression)  "in" expression) rec-decl-exp)
@@ -202,14 +210,14 @@
     (expression (circuit-type) circuit-exp)
 
     ;circuit def
-    (circuit-type ("circuit" "(" gate-list ")") circuit)
+    (circuit-type ("circuit(" gate-list ")") circuit)
 
     ;gate-list def
     (gate-list ("empty-gate-list") empty-gate-list)
-    (gate-list ("gate-list" "(" gate (arbno gate) ")") a-gate-list)
+    (gate-list ("gate-list" "(" gate (arbno "," gate) ")") a-gate-list)
 
     ;gate def
-    (gate ("gate" "(" identifier type input-list ")") a-gate)
+    (gate ("gate(" identifier "," type "," input-list ")") a-gate)
 
     (type ("and") and-type)
     (type ("or") or-type)
@@ -218,7 +226,7 @@
 
     ;input-list def
     (input-list ("empty-input-list") empty-input-list)
-    (input-list ("input-list" "(" expression (arbno expression) ")") an-input-list)
+    (input-list ("input-list(" expression (arbno  "," expression) ")") an-input-list)
 
     ;hex def
     (hex-type ("x16(-" (arbno number) ")") neg-hex)
