@@ -176,8 +176,8 @@
     (expression (identifier) var-exp)
 
     (expression ("print(" expression ")") print-exp)
-    
-    ;int prim app
+
+    ;ints and floats prims app
     (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
 
     ;conditionals
