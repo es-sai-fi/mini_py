@@ -2,7 +2,9 @@
 
 ;******************************************************************************************
 ;;;;; Interpretador para lenguaje con condicionales, ligadura local, procedimientos,
-;;;;; procedimientos recursivos, ejecución secuencial y asignación de variables
+;;;;; procedimientos recursivos, ejecución secuencial, asignación de variables, paso por valor,
+;;;;; paso por referencia, ciclos while y for, declaración de variables mutables e inmutables,
+;;;;; circuitos y sus primitivas, y POO.
 
 ;; La definición BNF para las expresiones del lenguaje:
 ;;
@@ -12,22 +14,130 @@
 ;;                      <lit-exp (datum)>
 ;;                  ::= <identifier>
 ;;                      <var-exp (id)>
+;;                  ::= <bool-type>
+;;                      <bool-exp (b-type)>
+;;                  ::= <list-type>
+;;                      <list-exp (l-type)>
+;;                  ::= <tuple-type>
+;;                      <tuple-exp (t-type)>
+;;                  ::= <dict-type>
+;;                      <dict-exp (d-type)>
+;;                  ::= <string-type>
+;;                      <string-exp (str-type)>
+;;                  ::= <hex-type>
+;;                      <hex-exp (h-type)>
+;;
+;;                  ::= empty-list?(<list-type>)
+;;                      <empty-list?-prim (l-type)>
+;;                  ::= list?(<expression>)
+;;                      <list?-prim (exp)>
+;;                  ::= list-append(<expression> , <expression>)
+;;                      <list-append-prim (exp1 exp2)> 
+;;                  ::= list-head(<expression>)
+;;                      <list-head-prim (exp)> 
+;;                  ::= list-tail(<expression>)
+;;                      <list-tail-prim (exp)> 
+;;                  ::= ref-list(<expression> , <expression>)
+;;                      <ref-list-prim (exp)> 
+;;                  ::= set-list(<expression>, <expression> , <expression>)
+;;                      <set-list-prim (exp1 exp2 exp3)>
+;;
+;;                  ::= empty-tuple?(<tuple-type>)
+;;                      <empty-tuple?-prim (t-type)>
+;;                  ::= tuple?(<expression>)
+;;                      <tuple?-prim (exp)>
+;;                  ::= tuple-head(<expression>)
+;;                      <tuple-head-prim (exp)> 
+;;                  ::= tuple-tail(<expression>)
+;;                      <tuple-tail-prim (exp)> 
+;;                  ::= ref-tuple(<expression> , <expression>)
+;;                      <ref-tuple-prim (exp)>
+;;
+;;                  ::= dict?(<expression>)
+;;                      <dict?-prim (exp)>
+;;                  ::= ref-dict(<expression> , <expression>)
+;;                      <ref-dict-prim (exp)> 
+;;                  ::= set-dict(<expression>, <expression> , <expression>)
+;;                      <set-dict-prim (exp1 exp2 exp3)>
+;;
+;;                  ::= hex-to-dec(<expression>)
+;;                      <hex-to-dec-prim (exp)>
+;;                  ::= dec-to-hex(<expression>)
+;;                      <dec-to-hex-prim (exp)>
+;;                  ::= sum-hex(<expression> , <expression>)
+;;                      <sum-hex-prim (exp1 exp2)> 
+;;                  ::= sub-hex(<expression> , <expression>)
+;;                      <sub-hex-prim (exp1 exp2)> 
+;;                  ::= mulp-hex(<expression> , <expression>)
+;;                      <mulp-hex-prim (exp1 exp2)> 
+;;                  ::= sub1-hex(<expression>)
+;;                      <sub-hex-prim (exp)>
+;;                  ::= add1-hex(<expression>)
+;;                      <add1-hex-prim (exp)>
+;;
 ;;                  ::= <primitive> ({<expression>}*(,))
 ;;                      <primapp-exp (prim rands)>
-;;                  ::= if <expresion> then <expresion> else <expression>
-;;                      <if-exp (exp1 exp2 exp23)>
-;;                  ::= let {<identifier> = <expression>}* in <expression>
-;;                      <let-exp (ids rands body)>
+;;
+;;                  ::= if <bool-type> then <expresion> else <expression> end
+;;                      <if-exp (b-type exp2 exp3)>
+;;                  ::= while <bool-type> do <expresion> done
+;;                      <while-exp (b-type body)>
+;;
+;;                  ::= var {<identifier> = <expression>}*(,) in <expression>
+;;                      <var-decl-exp (ids rands body)>
+;;                  ::= const {<identifier> = <expression>}*(,) in <expression>
+;;                      <const-decl-exp (ids rands body)>
+;;                  ::= rec  {identifier ({identifier}*(,)) = <expression>}* in <expression>
+;;                     <rec-decl-exp(proc-names idss bodies bodyletrec)>
+;;
 ;;                  ::= proc({<identificador>}*(,)) <expression>
 ;;                      <proc-exp (ids body)>
-;;                  ::= (<expression> {<expression>}*)
+;;                  ::= (<expression> {<expression>}*(,))
 ;;                      <app-exp proc rands>
-;;                  ::= letrec  {identifier ({identifier}*(,)) = <expression>}* in <expression>
-;;                     <letrec-exp(proc-names idss bodies bodyletrec)>
 ;;                  ::= begin <expression> {; <expression>}* end
+;;
 ;;                     <begin-exp (exp exps)>
 ;;                  ::= set <identifier> = <expression>
 ;;                     <set-exp (id rhsexp)>
+;;
+;;  <bool-type>     ::= <pred-prim>(<expression> , <expression>)
+;;                      <pred-prim-app (prim exp1 exp2)>
+;;                  ::= <bin-prim>(<expression> , <expression>)
+;;                      <bin-prim-app (prim exp1 exp2)>
+;;                  ::= <un-prim>(<expression>)
+;;                      <un-prim-app (prim exp)>
+;;                  ::= true
+;;                      <true-bool ()>
+;;                  ::= false
+;;                      <false-bool ()>
+;;  <dict-type>     ::= dict({<identifier> = <expression>}+(,))
+;;                      <dict (key val keys vals)>
+;;  <list-type>     ::= list({<expression>}+(,))
+;;                      <non-empty-list (first rest)>
+;;                  ::= empty-list
+;;                      <empty-list ()>
+;;  <tuple-type>    ::= tuple({<expression>}+(,))
+;;                      <non-empty-tuple (first rest)>
+;;                  ::= empty-tuple
+;;                      <empty-tuple ()>
+;;  <bin-prim>      ::= and
+;;                  ::= <and-prim ()>
+;;                  ::= or
+;;                  ::= <or-prim ()>
+;;  <un-prim>       ::= not
+;;                  ::= <not-prim ()>
+;;  <pred-prim>     ::= <
+;;                  ::= <lower-prim ()>
+;;                  ::= >
+;;                  ::= <greater-prim ()>
+;;                  ::= <=
+;;                  ::= <lower-equal-prim ()>
+;;                  ::= >=
+;;                  ::= <greater-equal-prim ()>
+;;                  ::= ==
+;;                  ::= <equal-prim ()>
+;;                  ::= !=
+;;                  ::= <not-equal-prim ()>
 ;;  <primitive>     ::= + | - | * | add1 | sub1 
 
 ;******************************************************************************************
@@ -52,7 +162,8 @@
   '((program (expression) a-program)
     (expression (number) lit-exp)
     (expression (identifier) var-exp)
-    (expression (primitive "(" (arbno expression) ")") primapp-exp)
+
+    (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
 
     (expression ("print(" expression ")") print-exp)
 
@@ -61,9 +172,8 @@
     (expression ("for" identifier "in" expression "do" expression "done") for-exp)
     (expression ("while" bool-type "do" expression "done") while-exp)
 
-    (expression ("let" (arbno identifier "=" expression) "in" expression) let-exp)
     (expression ("proc(" (separated-list identifier ",") ")" expression) proc-exp)
-    (expression ( "(" expression (arbno expression) ")") app-exp)
+    (expression ( "(" expression (separated-list expression ",") ")") app-exp)
     (expression ("set" identifier "=" expression) set-exp)
 
     (expression ("var" (separated-list identifier "=" expression ",") "in" expression) var-decl-exp)
@@ -75,6 +185,15 @@
     (expression (tuple-type) tuple-exp)
     (expression (dict-type) dict-exp)
     (expression (bool-type) bool-exp)
+    (expression (string-type) string-exp)
+    (expression (hex-type) hex-exp)
+
+    ;hex def
+    (hex-type ("x16(-" (arbno number) ")") neg-hex)
+    (hex-type ("x16(+" (arbno number) ")") pos-hex)
+
+    ;str def
+    (string-type ("#" identifier) a-str)
 
     ;list def
     (list-type ("list(" expression (arbno "," expression) ")") non-empty-list)
@@ -92,12 +211,11 @@
     (bool-type ("false") false-bool)
     
     ;bools prims
-    (bool-type (pred-prim "(" expression expression ")") pred-prim-app)
-    (bool-type (bin-prim "(" bool-type bool-type ")") bin-prim-app)
-    (bool-type (un-prim "(" bool-type ")") un-prim-app)
+    (bool-type (pred-prim "(" expression "," expression ")") pred-prim-app)
+    (bool-type (bin-prim "(" expression "," expression ")") bin-prim-app)
+    (bool-type (un-prim "(" expression ")") un-prim-app)
 
     ;lists prims
-    (expression ("create-list" "(" expression (arbno "," expression) ")") create-list-prim)
     (expression ("empty-list?" "(" list-type ")") empty-list?-prim)
     (expression ("list?" "(" expression ")") list?-prim)
     (expression ("list-append" "(" expression "," expression ")") list-append-prim)
@@ -107,7 +225,6 @@
     (expression ("set-list" "(" expression "," expression "," expression ")") set-list-prim)
 
     ;tuples prims
-    (expression ("create-tuple" "(" expression (arbno "," expression) ")") create-tuple-prim)
     (expression ("empty-tuple?" "(" tuple-type ")") empty-tuple?-prim)
     (expression ("tuple?" "(" expression ")") tuple?-prim)
     (expression ("tuple-head" "(" expression ")") tuple-head-prim)
@@ -115,7 +232,6 @@
     (expression ("ref-tuple" "(" expression "," expression ")") ref-tuple-prim)
 
     ;dicts prims
-    (expression ("create-dict" "(" identifier "=" expression (arbno "," identifier "=" expression) ")") create-dict-prim)
     (expression ("dict?" "(" expression ")") dict?-prim)
     (expression ("ref-dict" "(" expression "," identifier ")") ref-dict-prim)
     (expression ("set-dict" "(" expression "," identifier "," expression ")") set-dict-prim)
@@ -135,6 +251,19 @@
     (pred-prim ("==") equal-prim)
     (pred-prim ("!=") not-equal-prim)
 
+    ;hex prims
+    (expression ("hex-to-dec(" expression ")") hex-to-dec-prim)
+    (expression ("dec-to-hex(" expression ")") dec-to-hex-prim)
+    (expression ("sum-hex(" expression "," expression ")") sum-hex-prim)
+    (expression ("sub-hex(" expression "," expression  ")") sub-hex-prim)
+    (expression ("add1-hex(" expression ")") add1-hex-prim)
+    (expression ("sub1-hex(" expression ")") sub1-hex-prim)
+    (expression ("mulp-hex(" expression "," expression  ")") mulp-hex-prim)
+
+    ;string prims
+    (expression ("str-concat" "(" expression "," expression ")") str-concat-prim)
+    (expression ("str-len" "(" expression ")") str-len-prim)
+
     ;int prims
     (primitive ("+") add-prim)
     (primitive ("-") substract-prim)
@@ -143,56 +272,6 @@
     (primitive ("sub1") decr-prim)
   )
 )
-
-
-;Tipos de datos para la sintaxis abstracta de la gramática
-
-;Construidos manualmente:
-
-;(define-datatype program program?
-;  (a-program
-;   (exp expression?)))
-;
-;(define-datatype expression expression?
-;  (lit-exp
-;   (datum number?))
-;  (var-exp
-;   (id symbol?))
-;  (primapp-exp
-;   (prim primitive?)
-;   (rands (list-of expression?)))
-;  (if-exp
-;   (test-exp expression?)
-;   (true-exp expression?)
-;   (false-exp expression?))
-;  (let-exp
-;   (ids (list-of symbol?))
-;   (rans (list-of expression?))
-;   (body expression?))
-;  (proc-exp
-;   (ids (list-of symbol?))
-;   (body expression?))
-;  (app-exp
-;   (proc expression?)
-;   (args (list-of expression?)))
-;  (letrec-exp
-;   (proc-names (list-of symbol?))
-;   (idss (list-of (list-of symbol?)))
-;   (bodies (list-of expression?))
-;   (body-letrec expression?))
-;  (begin-exp
-;   (exp expression?)
-;   (exps (list-of expression?)))
-;  (set-exp
-;   (id symbol?)
-;   (rhs expression?)))
-;
-;(define-datatype primitive primitive?
-;  (add-prim)
-;  (substract-prim)
-;  (mult-prim)
-;  (incr-prim)
-;  (decr-prim))
 
 ;Construidos automáticamente:
 
@@ -277,6 +356,7 @@
           (list-exp (list-type) (print-list list-type env))
           (tuple-exp (tuple-type) (print-tuple tuple-type env))
           (dict-exp (dict-type) (print-dict dict-type env))
+          (string-exp (str-type) (display (string-type->str str-type)))
           (else (display (eval-expression exp env)))
         )
       )
@@ -289,11 +369,6 @@
         (if (eval-bool-type bool-type env)
           (eval-expression true-exp env)
           (eval-expression false-exp env)
-        )
-      )
-      (let-exp (ids rands body)
-        (let* ((args (eval-let/var/const-exp-rands rands env)) (const-tags (make-list (length args) #f)))
-          (eval-expression body (extend-env ids args const-tags env))
         )
       )
       (proc-exp (ids body) (closure ids body env))
@@ -343,7 +418,6 @@
 
       ;list and list prims
       (list-exp (l) l)
-      (create-list-prim (first rest) (non-empty-list first rest))
       (empty-list?-prim (exp) 
         (let ([l (eval-expression exp env)])
           (cases list-type l
@@ -409,9 +483,12 @@
       )
       (ref-list-prim (e1 e2)
         (let ([eval-exp-1 (eval-expression e1 env)] [idx (eval-expression e2 env)])
-          (cases list-type eval-exp-1
-            (non-empty-list (first rest) (ref-list/tuple-aux (cons first rest) idx env) )
-            (empty-list () (eopl:error 'ref-list "Index out of range"))
+          (if (and (exact? idx) (positive? idx))
+            (cases list-type eval-exp-1
+              (non-empty-list (first rest) (ref-list/tuple-aux (cons first rest) idx env) )
+              (empty-list () (eopl:error 'ref-list "Index out of range"))
+            )
+            (eopl:error 'ref-list-prim "Index not an exact/positive number")
           )  
         )
       )
@@ -431,7 +508,6 @@
 
       ;tuple and tuple prims
       (tuple-exp (tuple) tuple)
-      (create-tuple-prim (first rest) (non-empty-tuple first rest))
       (empty-tuple?-prim (exp) 
         (cases tuple-type exp
           (empty-tuple () #t)
@@ -467,16 +543,18 @@
       )
       (ref-tuple-prim (e1 e2)
         (let ([eval-exp-1 (eval-expression e1 env)] [idx (eval-expression e2 env)])
-          (cases tuple-type eval-exp-1
-            (non-empty-tuple (first rest) (ref-list/tuple-aux (cons first rest) idx env) )
-            (empty-tuple () (eopl:error 'ref-tuple "Index out of range"))
-          )  
+          (if (and (exact? idx) (positive? idx))
+            (cases tuple-type eval-exp-1
+              (non-empty-tuple (first rest) (ref-list/tuple-aux (cons first rest) idx env) )
+              (empty-tuple () (eopl:error 'ref-tuple "Index out of range"))
+            )  
+            (eopl:error 'ref-tuple-prim "Index not an exact/positive number")
+          )
         )
       )
 
       ;dict and dict prims
       (dict-exp (d) d)
-      (create-dict-prim (id rand ids rands) (dict id rand ids rands))
       (dict?-prim (exp) 
         (cases expression exp
           (dict-exp (_) #t)
@@ -505,6 +583,99 @@
               )
             )
           )
+        )
+      )
+
+      ;string and string prims
+      (string-exp (str) str)
+      (str-concat-prim (e1 e2)
+        (let*
+          (
+            [eval-exp-1 (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)]
+            [str1 (string-type->str eval-exp-1)]
+            [str2 (string-type->str eval-exp-2)]
+          )
+          (a-str (string->symbol (string-append str1 str2)))
+        )
+      )
+      (str-len-prim (e)
+        (let* ([eval-exp (eval-expression e env)] [str (string-type->str eval-exp)])
+          (string-length str)
+        )
+      )
+
+      ;hex and hex prims
+      (hex-exp (hex) 
+        (let ([vals (hex-type->vals hex)])
+          (if (valid-hex? vals)
+            hex
+            (eopl:error 'hex-type "Not valid hexadecimal number")
+          )
+        )
+      )
+      (hex-to-dec-prim (exp)
+        (let* ([eval-exp-1 (eval-expression exp env)])
+          (hex-to-dec-prim-aux eval-exp-1)
+        )
+      )
+      (dec-to-hex-prim (exp)
+        (let* ([eval-exp(eval-expression exp env)])
+          (if (exact? eval-exp)
+            (dec-to-hex-prim-aux eval-exp)
+            (eopl:error 'dec-to-hex-prim "Val not an exact number")
+          )
+        )
+      )
+      (sum-hex-prim (e1 e2)
+        (let* 
+          (
+            [eval-exp-1 (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)]
+            [dec1 (hex-to-dec-prim-aux eval-exp-1)]
+            [dec2 (hex-to-dec-prim-aux eval-exp-2)]
+          )
+          (dec-to-hex-prim-aux (+ dec1 dec2))
+        )
+      )
+      (sub-hex-prim (e1 e2)
+        (let* 
+          (
+            [eval-exp-1 (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)]
+            [dec1 (hex-to-dec-prim-aux eval-exp-1)]
+            [dec2 (hex-to-dec-prim-aux eval-exp-2)]
+          )
+          (dec-to-hex-prim-aux (- dec1 dec2))
+        )
+      )
+      (mulp-hex-prim (e1 e2)
+        (let* 
+          (
+            [eval-exp-1 (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)]
+            [dec1 (hex-to-dec-prim-aux eval-exp-1)]
+            [dec2 (hex-to-dec-prim-aux eval-exp-2)]
+          )
+          (dec-to-hex-prim-aux (* dec1 dec2))
+        )
+      )
+      (sub1-hex-prim (e)
+        (let* 
+          (
+            [eval-exp (eval-expression e env)] 
+            [dec (hex-to-dec-prim-aux eval-exp)]
+          )
+          (dec-to-hex-prim-aux (- dec 1))
+        )
+      )
+      (add1-hex-prim (e)
+        (let* 
+          (
+            [eval-exp (eval-expression e env)] 
+            [dec (hex-to-dec-prim-aux eval-exp)]
+          )
+          (dec-to-hex-prim-aux (+ dec 1))
         )
       )
 
@@ -552,7 +723,7 @@
         )
       )
 
-      (else 'meFalta)
+      (else exp)
     )
   )
 )
@@ -578,8 +749,6 @@
           )
         )
       )
-      (list-exp (l) (indirect-target (eval-expression rand env)))
-      (dict-exp (d) (indirect-target (eval-expression rand env)))
       (else (direct-target (eval-expression rand env)))
     )
   )
@@ -591,8 +760,9 @@
 
 (define eval-let/var/const-exp-rands
   (lambda (rands env)
-    (map (lambda (x) (eval-let/var/const-rand x env))
-         rands)))
+    (map (lambda (x) (eval-let/var/const-rand x env)) rands)
+  )
+)
 
 (define eval-let/var/const-rand
   (lambda (rand env)
@@ -605,22 +775,6 @@
   )
 )
 
-(define get-const-tags
-  (lambda (rands)
-    (map (lambda (r) (get-const-tag r)) rands)
-  )
-)
-    
-(define get-const-tag
-  (lambda (rand)
-    (cases expression rand
-      (list-exp (l) #f)
-      (dict-exp (d) #f)
-      (else #t)
-    )
-  )
-)
-
 ;apply-primitive: <primitiva> <list-of-expression> -> numero
 (define apply-primitive
   (lambda (prim args)
@@ -629,7 +783,10 @@
       (substract-prim () (- (car args) (cadr args)))
       (mult-prim () (* (car args) (cadr args)))
       (incr-prim () (+ (car args) 1))
-      (decr-prim () (- (car args) 1)))))
+      (decr-prim () (- (car args) 1))
+    )
+  )
+)
 
 ;*******************************************************************************************
 ;for-exp
@@ -709,6 +866,93 @@
 )
 
 ;*******************************************************************************************
+;Hexadecimals
+
+; función auxiliar utilizada para la implementación de la primitiva dec-to-hex-prim. Crea un hexadeci-
+; mal con la lista retornada por dec->hex.
+(define dec-to-hex-prim-aux
+  (lambda (val)
+    (if (>= val 0)
+      (pos-hex (dec->hex val))
+      (neg-hex (dec->hex (- val)))
+    )
+  )
+)
+
+; función auxiliar que retorna una lista con la representación hexadecimal de un número decimal
+; (en la práctica solo funciona con enteros).
+(define dec->hex
+  (lambda (val)
+    (if (= val 0)
+      (list 0)
+      (let loop([num val] [acum empty])
+        (if (= num 0)
+          acum
+          (loop (quotient num 16) (append-aux acum (list (remainder num 16))))
+        )
+      )
+    )
+  )
+)
+
+; función auxiliar que que convierte una representación basada en listas de un hexadecimal a un
+; número decimal (en la práctica retorna solo enteros).
+(define hex->dec
+  (lambda (vals n)
+    (if (null? vals)
+      0
+      (+ (hex->dec (cdr vals) (+ n 1)) (* (car vals) (expt 16 n)))
+    )
+  )
+)
+
+; función auxiliar utilizada para la implementación de la primitiva hex-to-dec-prim-aux. Retorna el
+; valor correspondiente a la representación hexadecimal mediante listas ingresada.
+(define hex-to-dec-prim-aux
+  (lambda (h-type)
+    (cases hex-type h-type
+      (pos-hex (vals) (hex->dec vals 0))
+      (neg-hex (vals) (- (hex->dec vals 0)))
+    )
+  )
+)
+
+; función auxiliar que verifica si los valores de un número hexadecimal son válidos.
+(define valid-hex?
+  (lambda (vals)
+    (let 
+      (
+        [valid-range? (valid-hex-range? vals)]
+        [integers? (all-integer? vals)]
+      )
+      (and valid-range? integers?)
+    )
+  )
+)
+
+; función auxiliar que verifica si los valores de una lista se encuentran en el rango (-16, 16).
+(define valid-hex-range?
+  (lambda (vals)
+    (cond
+      ([null? vals] #t)
+      ([and (< (car vals) 16) (> (car vals) -16)] (valid-hex-range? (cdr vals)))
+      (else #f)
+    )
+  )
+)
+
+; función auxiliar que verifica si todos los valores de una lista son ints.
+(define all-integer?
+  (lambda (vals)
+    (cond
+      ([null? vals] #t)
+      ([integer? (car vals)] (all-integer? (cdr vals)))
+      (else #f)
+    )
+  )
+)
+
+;*******************************************************************************************
 ;Bools
 
 ; función auxixiliar utilizada para implementar procesar types booleanos.
@@ -767,12 +1011,12 @@
   (lambda (prim type1 type2 env)
     (cases bin-prim prim
       (and-prim () 
-        (let ([val1 (eval-bool-type type1 env)] [val2 (eval-bool-type type2 env)])
+        (let ([val1 (eval-expression type1 env)] [val2 (eval-expression type2 env)])
           (and val1 val2)
         )
       )
       (or-prim ()
-        (let ([val1 (eval-bool-type type1 env)] [val2 (eval-bool-type type2 env)])
+        (let ([val1 (eval-expression type1 env)] [val2 (eval-expression type2 env)])
           (or val1 val2)
         )
       )
@@ -785,7 +1029,7 @@
   (lambda (prim type env)
     (cases un-prim prim
       (not-prim () 
-        (let ([val (eval-bool-type type env)])
+        (let ([val (eval-expression type env)])
           (not val)
         )
       )
@@ -879,12 +1123,33 @@
 ;*******************************************************************************************
 ;Extractors
 
+; extractor que a partir de un string-type retorna el símbolo asociado a este y posteriormente lo
+; convierte a string.
+(define string-type->str
+  (lambda (str)
+    (cases string-type str
+      (a-str (symb) (symbol->string symb))
+      (else (eopl:error 'string-type->str "Not a string type"))
+    )
+  )
+)
+
+; extractor que a partir de un hex-type retorna los valores de este.
+(define hex-type->vals
+  (lambda (h-type)
+    (cases hex-type h-type
+      (pos-hex (vals) vals)
+      (neg-hex (vals) vals)
+    )
+  )
+)
+
 ; extractor que a partir de una expresión tipo var-exp retorna el símbolo de esta.
 (define var-exp->id
   (lambda (var)
     (cases expression var
       (var-exp (id) id)
-      (else (eopl:error 'exp->id "Not a var-exp"))
+      (else (eopl:error 'var-exp->id "Not a var-exp"))
     )
   )
 )
@@ -996,7 +1261,7 @@
 (define extend-env-recursively
   (lambda (proc-names idss bodies old-env)
     (let ((len (length proc-names)))
-      (let ((vec (make-vector len)) (const-tags (make-vector len #t)))
+      (let ((vec (make-vector len)) (const-tags (make-vector len #f)))
         (let ((env (extended-env-record proc-names vec const-tags old-env)))
           (for-each
             (lambda (pos ids body)
@@ -1053,11 +1318,13 @@
   (lambda (x)
     (cond
       ([number? x] #t)
+      ([boolean? x] #t)
       ([procval? x] #t)
       ([list-type? x] #t)
       ([dict-type? x] #t)
       ([tuple-type? x] #t)
-      ([bool-type? x] #t)
+      ([string-type? x] #t)
+      ([hex-type? x] #t)
       (else #f)
     )
   )
