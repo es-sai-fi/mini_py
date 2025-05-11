@@ -1766,6 +1766,8 @@
 ;******************************************************************************************
 ;Ejemplos de sintaxis
 
+(scan&parse "var x=1, y=2 in x")
+(scan&parse "const x=1, y=2 in x")
+(scan&parse "rec p(n)=add1(n) in (p 1)")
 
-
-(interpretador)
+;(interpretador)
