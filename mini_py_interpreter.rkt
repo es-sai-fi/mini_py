@@ -75,6 +75,13 @@
 ;;                  ::= add1-hex(<expression>)
 ;;                      <add1-hex-prim (exp)>
 ;;
+;;                  ::= eval-circuit(<expression>)
+;;                      <eval-circuit-prim (exp)>
+;;                  ::= connect-circuits(<expression> , <expression> , <identifier>)
+;;                      <connect-circuits-prim (exp1 exp2 id)>
+;;                  ::= merge-circuits(<expression> , <expression> , <type> , <identifier>)
+;;                      <merge-circuits (exp1 exp2 type id)>
+;;
 ;;                  ::= <primitive> ({<expression>}*(,))
 ;;                      <primapp-exp (prim rands)>
 ;;
@@ -120,6 +127,11 @@
 ;;                      <non-empty-tuple (first rest)>
 ;;                  ::= empty-tuple
 ;;                      <empty-tuple ()>
+;;  <circuit-type>  ::= <gate-list>
+;;  <gate-list>     ::= empty | <gate> <gate_list>
+;;  <gate>          ::= <identifier> <type> <input list>
+;;  <type>          ::= and | or | not | xor
+;;  <input-list>    ::= empty | <bool> <input_list> | <identifier> <input_list>
 ;;  <bin-prim>      ::= and
 ;;                  ::= <and-prim ()>
 ;;                  ::= or
@@ -187,6 +199,26 @@
     (expression (bool-type) bool-exp)
     (expression (string-type) string-exp)
     (expression (hex-type) hex-exp)
+    (expression (circuit-type) circuit-exp)
+
+    ;circuit def
+    (circuit-type ("circuit" "(" gate-list ")") circuit)
+
+    ;gate-list def
+    (gate-list ("empty-gate-list") empty-gate-list)
+    (gate-list ("gate-list" "(" gate (arbno gate) ")") a-gate-list)
+
+    ;gate def
+    (gate ("gate" "(" identifier type input-list ")") a-gate)
+
+    (type ("and") and-type)
+    (type ("or") or-type)
+    (type ("xor") xor-type)
+    (type ("not") not-type)
+
+    ;input-list def
+    (input-list ("empty-input-list") empty-input-list)
+    (input-list ("input-list" "(" expression (arbno expression) ")") an-input-list)
 
     ;hex def
     (hex-type ("x16(-" (arbno number) ")") neg-hex)
@@ -263,6 +295,11 @@
     ;string prims
     (expression ("str-concat" "(" expression "," expression ")") str-concat-prim)
     (expression ("str-len" "(" expression ")") str-len-prim)
+
+    ;circuit prims
+    (expression ("eval-circuit(" expression ")") eval-circuit-prim)
+    (expression ("connect-circuits(" expression "," expression "," identifier ")") connect-circuits-prim)
+    (expression ("merge-circuits(" expression "," expression "," type "," identifier ")") merge-circuits-prim)
 
     ;int prims
     (primitive ("+") add-prim)
@@ -615,12 +652,12 @@
         )
       )
       (hex-to-dec-prim (exp)
-        (let* ([eval-exp-1 (eval-expression exp env)])
+        (let ([eval-exp-1 (eval-expression exp env)])
           (hex-to-dec-prim-aux eval-exp-1)
         )
       )
       (dec-to-hex-prim (exp)
-        (let* ([eval-exp(eval-expression exp env)])
+        (let ([eval-exp(eval-expression exp env)])
           (if (exact? eval-exp)
             (dec-to-hex-prim-aux eval-exp)
             (eopl:error 'dec-to-hex-prim "Val not an exact number")
@@ -677,6 +714,36 @@
           )
           (dec-to-hex-prim-aux (+ dec 1))
         )
+      )
+
+      ;circuit and circuit prims
+      (circuit-exp (circ) circ)
+      (eval-circuit-prim (exp)
+        (let* ([eval-exp (eval-expression exp env)] [gate-list (circuit->gate-list eval-exp)])
+          (eval-gate-list gate-list env)
+        )
+      )
+      (connect-circuits-prim (e1 e2 id)
+        (let* 
+          (
+            [eval-exp-1 (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)]
+            [glist1 (circuit->gate-list eval-exp-1)]
+            [glist2 (circuit->gate-list eval-exp-2)]
+          )
+          (connect-circuits-prim-aux glist1 glist2 id)
+        )
+      )
+      (merge-circuits-prim (e1 e2 type id)
+        (let* 
+          (
+            [eval-exp-1 (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)]
+            [glist1 (circuit->gate-list eval-exp-1)]
+            [glist2 (circuit->gate-list eval-exp-2)]
+          )
+          (merge-circuits-prim-aux glist1 glist2 type id)
+        )      
       )
 
       ;booleans
@@ -864,6 +931,166 @@
     )
   )
 )
+
+;*******************************************************************************************
+;Circuits
+
+; función que permite evaluar un gate de acuerdo a su tipo.
+(define eval-gate
+  (lambda (g env)
+    (cases gate g
+      (a-gate (id t i-list) 
+        (cases input-list i-list
+          (an-input-list (first rest) 
+            (cases type t
+              (and-type () (and (eval-expression first env) (eval-expression (car rest) env)))
+              (or-type () (or (eval-expression first env) (eval-expression (car rest) env)))
+              (not-type () (not (eval-expression first env)))
+              (xor-type () (xor (eval-expression first env) (eval-expression (car rest) env)))
+            )
+          )
+          (empty-input-list () (eopl:error 'eval-gate "No evaluation for gate with no inputs"))
+        )
+      )
+    )
+  )
+)
+
+; función que procesa un gate-list aplicandole cases y obtieniendo los elementos de este para luego
+; invocar a la función auxiliar eval-gate-list-aux.
+(define eval-gate-list
+  (lambda (glist env)
+    (let ([first (gate-list->first glist)] [rest (gate-list->rest glist)])
+      (if (null? first)
+        (eopl:error 'eval-gate-list "No evaluation for gate-list with no gates")
+        (let loop([first first] [rest rest] [env env])
+          (let*   
+            (
+              [res (eval-gate first env)] 
+              [newEnv (extend-env (list (gate->identifier first)) (list (direct-target res)) (list #t) env)]
+            )
+            (if (null? rest) 
+              res
+              (loop (car rest) (cdr rest) newEnv)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para implementar la primitiva merge-circuits-prim que conecta dos 
+; circuitos de forma paralela sobre un gate de tipo or | and | xor | not y con identificador 
+; especificado por el usuario
+(define merge-circuits-prim-aux
+  (lambda (glist1 glist2 type id)
+    (let 
+      (
+        [c1-first-gate (gate-list->first glist1)] 
+        [c1-rest-gates (gate-list->rest glist1)]
+        [c2-first-gate (gate-list->first glist2)]
+        [c2-rest-gates (gate-list->rest glist2)]
+      )
+      (if (or (null? c1-first-gate) (null? c2-first-gate))
+        (eopl:error 'merge-circuits "No merge for a non empty circuit and an empty circuit")
+        (circuit 
+          (a-gate-list 
+            c1-first-gate
+            (append-aux 
+              (append-aux c1-rest-gates (cons c2-first-gate c2-rest-gates)) 
+              (list 
+                (a-gate id type 
+                  (an-input-list 
+                    (var-exp (return-last-identifier glist1)) 
+                    (list (var-exp (return-last-identifier glist2)))
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para implementar la primitiva connect-circuits-prim que conecta dos 
+; circuitos de forma secuencial, es decir, se cambia alguna entrada del circuito 2 por la salida 
+; del circuito 1. La entrada a cambiar es especificada por el usuario.
+(define connect-circuits-prim-aux
+  (lambda (glist1 glist2 old-id)
+    (let 
+      (
+        [c1-first-gate (gate-list->first glist1)] 
+        [c1-rest-gates (gate-list->rest glist1)]
+        [c2-first-gate (gate-list->first glist2)]
+        [c2-rest-gates (gate-list->rest glist2)]
+        [new-id (return-last-identifier glist1)]
+      )
+      (if (or (null? c1-first-gate) (null? c2-first-gate))
+        (eopl:error 'connect-circuits "No connection for a non empty circuit and an empty circuit")
+        (circuit
+          (a-gate-list
+            c1-first-gate
+            (append-aux 
+              c1-rest-gates 
+              (map 
+                (lambda (g) (replace-gate-input-list g old-id new-id)) 
+                (cons c2-first-gate c2-rest-gates)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; función que reemplaza el input-list de un gate por el resultado de llamar a replace-input-list con
+; el input-list del gate, el id a reemplazar y el id por el cual se va a reemplazar.
+(define replace-gate-input-list
+  (lambda (g old-id new-id)
+    (cases gate g
+      (a-gate (id type input-list)
+        (a-gate id type (replace-input-list input-list old-id new-id))
+      )
+    )
+  )
+)
+
+; función que reemplaza un input de un input-list por el resultado de llamar a replace-input con
+; el input del input-list, el id a reemplazar y el id por el cual se va a reemplazar.
+(define replace-input-list
+  (lambda (i-list old-id new-id)
+    (cases input-list i-list
+      (empty-input-list () i-list)
+      (an-input-list (first rest)
+        (an-input-list
+          (replace-input first old-id new-id)
+          (map (lambda (i) (replace-input i old-id new-id)) rest)
+        )
+      )
+    )
+  )
+)
+
+; función que reemplaza el input como tal. Si el input equivale al id que se va a reemplazar entonces
+; se reemplaza por el id a reemplazar.
+(define replace-input
+  (lambda (input old-id new-id)
+    (cases expression input
+      (var-exp (id)
+        (if (eqv? id old-id)
+          (var-exp new-id)
+          input
+        )
+      )
+      (else input)
+    )
+  )
+)
+
 
 ;*******************************************************************************************
 ;Hexadecimals
@@ -1123,6 +1350,53 @@
 ;*******************************************************************************************
 ;Extractors
 
+; extractor que a partir de un circuito retorna su gate-list
+(define circuit->gate-list
+  (lambda (circ)
+    (cases circuit-type circ
+      (circuit (gate-list) gate-list)
+    )
+  )
+)
+
+; extractor que a partir de un gate-list retorna su primer gate
+(define gate-list->first
+  (lambda (glist)
+    (cases gate-list glist
+      (empty-gate-list () empty)
+      (a-gate-list (first rest) first)
+    )
+  )
+)
+
+; extractor que a partir de un gate-list retorna el resto de gates
+(define gate-list->rest
+  (lambda (glist)
+    (cases gate-list glist
+      (empty-gate-list () empty)
+      (a-gate-list (first rest) rest)
+    )
+  )
+)
+
+; extractor que a partir de un gate retorna su identificador
+(define gate->identifier
+  (lambda (g)
+    (cases gate g
+      (a-gate (id type input-list) id)
+    )
+  )
+)
+
+; extractor que a partir de un gate retorna su type
+(define gate->type
+  (lambda (g)
+    (cases gate g
+      (a-gate (id type input-list) type)
+    )
+  )
+)
+
 ; extractor que a partir de un string-type retorna el símbolo asociado a este y posteriormente lo
 ; convierte a string.
 (define string-type->str
@@ -1198,7 +1472,8 @@
 
 (define-datatype target target?
   (direct-target (expval expval?))
-  (indirect-target (ref ref-to-direct-target?)))
+  (indirect-target (ref ref-to-direct-target?))
+)
 
 (define-datatype reference reference?
   (a-ref (position integer?) (vec vector?) (const-tags vector?))
@@ -1325,6 +1600,7 @@
       ([tuple-type? x] #t)
       ([string-type? x] #t)
       ([hex-type? x] #t)
+      ([circuit-type? x] #t)
       (else #f)
     )
   )
@@ -1452,6 +1728,30 @@
       empty
       (cons val (make-list (- len 1) val))
     )
+  )
+)
+
+; función auxiliar que a partir de un gate-list retorna el identificador de su último gate
+(define return-last-identifier
+  (lambda (glist)
+    (let ([first (gate-list->first glist)] [rest (gate-list->rest glist)])
+      (if (null? first)
+        (eopl:error 'return-last-identifier "No last identifier for an empty gate-list")
+        (let loop([first first] [rest rest])
+          (if (null? rest)
+            (gate->identifier first)
+            (loop (car rest) (cdr rest))
+          )
+        )
+      )
+    )
+  )
+)
+
+; función utilizada para implementar xor en nuestro lenguaje.
+(define xor 
+  (lambda (a b)
+    (and (or a b) (not (and a b)))
   )
 )
 
