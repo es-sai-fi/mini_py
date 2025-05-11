@@ -1764,9 +1764,8 @@
 )
 
 ;******************************************************************************************
-;Pruebas
+;Ejemplos de sintaxis
 
 
 
-;(scan&parse)
-;(interpretador)
+(interpretador)
