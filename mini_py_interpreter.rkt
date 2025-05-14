@@ -190,7 +190,7 @@
     ;procs
     (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
     (expression ("proc(" (separated-list identifier ",") ")" expression) proc-exp)
-    (expression ( "(" expression (separated-list expression ",") ")") app-exp)
+    (expression ( "(" expression (arbno expression) ")") app-exp)
     
     ;seq exps
     (expression ("set" identifier "=" expression) set-exp)
@@ -763,9 +763,19 @@
           (var-exp (id) 
             (let* 
               (
-                [list-type (apply-env env id)] 
-                [first (list-type->first list-type)] 
-                [rest (list-type->rest list-type)]
+                [l/t-type (apply-env env id)] 
+                [first 
+                  (if (list-type? l/t-type) 
+                    (list-type->first l/t-type)
+                    (tuple-type->first l/t-type)
+                  )
+                ] 
+                [rest 
+                  (if (list-type? l/t-type)
+                    (list-type->rest l/t-type)
+                    (tuple-type->rest l/t-type)
+                  )
+                ]
                 [vals (eval-let/var/const-exp-rands (cons first rest) env)]
               )
               (for-exp-aux identifier vals e3 env)
@@ -776,6 +786,16 @@
               (
                 [first (list-type->first list-type)] 
                 [rest (list-type->rest list-type)]
+                [vals (eval-let/var/const-exp-rands (cons first rest) env)]
+              )
+              (for-exp-aux identifier vals e3 env)
+            )
+          )
+          (tuple-exp (tuple-type) 
+            (let* 
+              (
+                [first (tuple-type->first tuple-type)] 
+                [rest (tuple-type->rest tuple-type)]
                 [vals (eval-let/var/const-exp-rands (cons first rest) env)]
               )
               (for-exp-aux identifier vals e3 env)
@@ -1452,6 +1472,26 @@
     (cases list-type l
       (non-empty-list (first rest) rest)
       (empty-list () empty)
+    )
+  )
+)
+
+; extractor que a partir de un tuple-type retorna el primer elemento de este.
+(define tuple-type->first
+  (lambda (t)
+    (cases tuple-type t
+      (non-empty-tuple (first rest) first)
+      (empty-tuple () empty)
+    )
+  )
+)
+
+; extractor que a partir de un tuple-type retorna todos los elementos menos el primero de este.
+(define tuple-type->rest
+  (lambda (t)
+    (cases tuple-type t
+      (non-empty-tuple (first rest) rest)
+      (empty-tuple () empty)
     )
   )
 )
