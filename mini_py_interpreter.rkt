@@ -169,9 +169,20 @@
 )
 
 ;Especificación Sintáctica (gramática)
-
 (define grammar-simple-interpreter
-  '((program (expression) a-program)
+  '((program ((arbno class-decl) expression) a-program)
+
+    ;oop
+    (
+      class-decl 
+      ("class" identifier "extends" identifier (arbno "field" identifier) (arbno method-decl)) 
+      a-class-decl
+    )
+    (method-decl("method" identifier "(" (separated-list identifier ",") ")" expression) a-method-decl)
+    (expression ("new" identifier "(" (separated-list expression ",") ")") new-object-exp)
+    (expression ("send" expression identifier "("  (separated-list expression ",") ")") method-app-exp)
+    (expression ("super" identifier    "("  (separated-list expression ",") ")") super-call-exp)
+
     (expression (number) lit-exp)
     (expression (identifier) var-exp)
 
@@ -356,8 +367,13 @@
 (define eval-program
   (lambda (pgm)
     (cases program pgm
-      (a-program (body)
-                 (eval-expression body (init-env))))))
+      (a-program (c-decls exp)
+        (elaborate-class-decls! c-decls) 
+        (eval-expression exp (init-env))
+      )
+    )
+  )
+)
 
 ; Ambiente inicial
 ;(define init-env
@@ -372,7 +388,6 @@
     (extend-env
       '(x y z)
       (list (direct-target 1) (direct-target 5) (direct-target 10))
-      (list #f #f #f)
       (empty-env)
     )
   )
@@ -448,13 +463,13 @@
       
       ;decls
       (var-decl-exp (ids rands body) 
-        (let* ([args (eval-let/var/const-exp-rands rands env)] [const-tags (make-list (length args) #f)])
-          (eval-expression body (extend-env ids args const-tags env))
+        (let* ([args (eval-var-exp-rands rands env)])
+          (eval-expression body (extend-env ids args env))
         )
       )
       (const-decl-exp (ids rands body)
-        (let* ([args (eval-let/var/const-exp-rands rands env)] [const-tags (make-list (length args) #t)])
-          (eval-expression body (extend-env ids args const-tags env))
+        (let* ([args (eval-const-exp-rands rands env)])
+          (eval-expression body (extend-env ids args env))
         )
       )
       (rec-decl-exp (proc-names idss bodies rec-body)
@@ -776,9 +791,9 @@
                     (tuple-type->rest l/t-type)
                   )
                 ]
-                [vals (eval-let/var/const-exp-rands (cons first rest) env)]
+                [args (eval-for-exp-rands (cons first rest) env)]
               )
-              (for-exp-aux identifier vals e3 env)
+              (for-exp-aux identifier args e3 env)
             )
           )
           (list-exp (list-type) 
@@ -786,7 +801,7 @@
               (
                 [first (list-type->first list-type)] 
                 [rest (list-type->rest list-type)]
-                [vals (eval-let/var/const-exp-rands (cons first rest) env)]
+                [vals (eval-list/tuple-exp-rands (cons first rest) env)]
               )
               (for-exp-aux identifier vals e3 env)
             )
@@ -796,9 +811,9 @@
               (
                 [first (tuple-type->first tuple-type)] 
                 [rest (tuple-type->rest tuple-type)]
-                [vals (eval-let/var/const-exp-rands (cons first rest) env)]
+                [args (eval-list/tuple-exp-rands (cons first rest) env)]
               )
-              (for-exp-aux identifier vals e3 env)
+              (for-exp-aux identifier args e3 env)
             )
           )
           (else (eopl:error 'for "Not supported type for iterable"))
@@ -815,6 +830,21 @@
             )
             'done
           )
+        )
+      )
+      (new-object-exp (class-name rands)
+        (let ((args (eval-rands rands env)) (obj (new-object class-name)))
+          (find-method-and-apply 'initialize class-name obj args) obj
+        )
+      )
+      (method-app-exp (obj-exp method-name rands)
+        (let ((args (eval-rands rands env)) (obj (eval-expression obj-exp env)))
+          (find-method-and-apply method-name (object->class-name obj) obj args)
+        )
+      )
+      (super-call-exp (method-name rands)
+        (let ((args (eval-rands rands env)) (obj (apply-env env 'self)))
+          (find-method-and-apply method-name (apply-env env '%super) obj args)
         )
       )
 
@@ -839,6 +869,7 @@
           (let ((ref (apply-env-ref env id)))
             (cases target (primitive-deref ref)
               (direct-target (expval) ref)
+              (constant-target (expval) ref)
               (indirect-target (ref1) ref1)
             )
           )
@@ -849,23 +880,66 @@
   )
 )
 
-(define eval-primapp-exp-rands
+(define eval-list/tuple-exp-rands
   (lambda (rands env)
-    (map (lambda (x) (eval-expression x env)) rands)))
-
-(define eval-let/var/const-exp-rands
-  (lambda (rands env)
-    (map (lambda (x) (eval-let/var/const-rand x env)) rands)
+    (map (lambda (x) (eval-list/tuple-exp-rand x env)) rands)
   )
 )
 
-(define eval-let/var/const-rand
+(define eval-list/tuple-exp-rand
+  (lambda (rand env)
+    (direct-target (eval-expression rand env))
+  )
+)
+
+(define eval-primapp-exp-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-expression x env)) rands)
+  )
+)
+
+(define eval-var-exp-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-var-rand x env)) rands)
+  )
+)
+
+(define eval-for-exp-rands
+  (lambda (rands env)
+    (map (lambda(x) (eval-for-exp-rand x env)) rands)
+  )
+)
+
+(define eval-for-exp-rand
+  (lambda (rand env)
+    (direct-target (eval-expression rand env))
+  )
+)
+
+(define eval-var-rand
   (lambda (rand env)
     (cases expression rand
       (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
       (set-list-prim (e1 e2 e3) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
       (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
       (else (direct-target (eval-expression rand env)))
+    )  
+  )
+)
+
+(define eval-const-exp-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-const-rand x env)) rands)
+  )
+)
+
+(define eval-const-rand
+  (lambda (rand env)
+    (cases expression rand
+      (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (set-list-prim (e1 e2 e3) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (else (constant-target (eval-expression rand env)))
     )  
   )
 )
@@ -883,6 +957,126 @@
   )
 )
 
+;**************************************************************************************
+;oop
+
+(define the-class-env '())
+
+(define elaborate-class-decls!
+  (lambda (c-decls)
+    (set! the-class-env c-decls)
+  )
+)
+
+(define lookup-class
+  (lambda (name)
+    (let loop ((env the-class-env))
+      (cond
+        ((null? env) (eopl:error 'lookup-class "Unknown class ~s" name))
+        ((eqv? (class-decl->class-name (car env)) name) (car env))
+        (else (loop (cdr env)))
+      )
+    )
+  )
+)
+
+;; find a method in a list of method-decls, else return #f
+(define lookup-method-decl 
+  (lambda (m-name m-decls)
+    (cond
+      ((null? m-decls) #f)
+      ((eqv? m-name (method-decl->method-name (car m-decls)))
+       (car m-decls))
+      (else (lookup-method-decl m-name (cdr m-decls)))
+    )
+  )
+)
+
+(define find-method-and-apply
+  (lambda (m-name host-name self args)
+    (if (eqv? host-name 'object)
+      (eopl:error 'find-method-and-apply "No method for name ~s" m-name)
+      (let ((m-decl (lookup-method-decl m-name (class-name->method-decls host-name))))
+        (if (method-decl? m-decl)
+          (apply-method m-decl host-name self args)
+          (find-method-and-apply m-name (class-name->super-name host-name) self args)
+        )
+      )
+    )
+  )
+)
+
+(define view-object-as
+  (lambda (parts class-name)
+    (if (eqv? (part->class-name (car parts)) class-name)
+      parts
+      (view-object-as (cdr parts) class-name)
+    )
+  )
+)
+
+(define apply-method
+  (lambda (m-decl host-name self args)
+    (let 
+      (
+        (ids (method-decl->ids m-decl))
+        (body (method-decl->body m-decl))
+        (super-name (class-name->super-name host-name))
+      )
+      (eval-expression body
+        (extend-env
+          (cons '%super (cons 'self ids))
+          (cons super-name (cons self args))
+          (build-field-env (view-object-as self host-name))
+        )
+      )
+    )
+  )
+)
+
+(define build-field-env
+  (lambda (parts)
+    (if (null? parts)
+      (empty-env)
+      (extend-env-refs
+        (part->field-ids (car parts))
+        (part->fields (car parts))
+        (build-field-env (cdr parts))
+      )
+    )
+  )
+)
+
+(define extend-env-refs
+  (lambda (syms vec env)
+    (extended-env-record syms vec env)
+  )
+)
+
+(define-datatype part part? 
+  (a-part (class-name symbol?) (fields vector?))
+)
+
+(define new-object
+  (lambda (class-name)
+    (if (eqv? class-name 'object)
+      '()
+      (let ((c-decl (lookup-class class-name)))
+        (cons (make-first-part c-decl) (new-object (class-decl->super-name c-decl)))
+      )
+    )
+  )
+)
+
+(define make-first-part
+  (lambda (c-decl)
+    (a-part
+      (class-decl->class-name c-decl)
+      (make-vector (length (class-decl->field-ids c-decl)))
+    )
+  )
+)
+
 ;*******************************************************************************************
 ;for-exp
 
@@ -891,14 +1085,14 @@
 ; body en este nuevo ambiente, este proceso termina hasta que ya no hayan más valores en vals y por
 ; ende no iteraciones a realizar.
 (define for-exp-aux
-  (lambda (id vals body env)
-    (if (null? vals)
+  (lambda (id args body env)
+    (if (null? args)
       'done
       (begin 
         body
-        (eval-expression body (extend-env (list id) (list (car vals)) (list #t) env))
+        (eval-expression body (extend-env (list id) (list (car args)) env))
         (display "\n")
-        (for-exp-aux id (cdr vals) body env)  
+        (for-exp-aux id (cdr args) body env)  
       )
     )
   )
@@ -1378,6 +1572,126 @@
 ;*******************************************************************************************
 ;Extractors
 
+(define class-decl->class-name
+  (lambda (c-decl)
+    (cases class-decl c-decl
+      (a-class-decl (class-name super-name field-ids m-decls) class-name)
+    )
+  )
+)
+
+(define class-decl->super-name
+  (lambda (c-decl)
+    (cases class-decl c-decl
+      (a-class-decl (class-name super-name field-ids m-decls) super-name)
+    )
+  )
+)
+
+(define class-decl->field-ids
+  (lambda (c-decl)
+    (cases class-decl c-decl
+      (a-class-decl (class-name super-name field-ids m-decls) field-ids)
+    )
+  )
+)
+
+(define class-decl->method-decls
+  (lambda (c-decl)
+    (cases class-decl c-decl
+      (a-class-decl (class-name super-name field-ids m-decls) m-decls)
+    )
+  )
+)
+
+(define method-decl->method-name
+  (lambda (md)
+    (cases method-decl md
+      (a-method-decl (method-name ids body) method-name)
+    )
+  )
+)
+
+(define method-decl->ids
+  (lambda (md)
+    (cases method-decl md
+      (a-method-decl (method-name ids body) ids)
+    )
+  )
+)
+
+(define method-decl->body
+  (lambda (md)
+    (cases method-decl md
+      (a-method-decl (method-name ids body) body)
+    )
+  )
+)
+
+(define method-decls->method-names
+  (lambda (mds)
+    (map method-decl->method-name mds)
+  )
+)
+
+(define part->class-name
+  (lambda (prt)
+    (cases part prt
+      (a-part (class-name fields) class-name)
+    )
+  )
+)
+
+(define part->fields
+  (lambda (prt)
+    (cases part prt
+      (a-part (class-name fields) fields)
+    )
+  )
+)
+
+(define part->field-ids
+  (lambda (part)
+    (class-decl->field-ids (part->class-decl part))
+  )
+)
+
+(define part->class-decl
+  (lambda (part)
+    (lookup-class (part->class-name part))
+  )
+)
+
+(define part->method-decls
+  (lambda (part)
+    (class-decl->method-decls (part->class-decl part))
+  )
+)
+
+(define part->super-name
+  (lambda (part)
+    (class-decl->super-name (part->class-decl part))
+  )
+)
+
+(define class-name->method-decls
+  (lambda (class-name)
+    (class-decl->method-decls (lookup-class class-name))
+  )
+)
+
+(define class-name->super-name
+  (lambda (class-name)
+    (class-decl->super-name (lookup-class class-name))
+  )
+)
+
+(define object->class-name
+  (lambda (parts)
+    (part->class-name (car parts))
+  )
+)
+
 ; extractor que a partir de un circuito retorna su gate-list
 (define circuit->gate-list
   (lambda (circ)
@@ -1510,40 +1824,22 @@
 (define apply-procedure
   (lambda (proc args const-tags)
     (cases procval proc
-      (closure (ids body env) (eval-expression body (extend-env ids args const-tags env)))
+      (closure (ids body env) (eval-expression body (extend-env ids args env)))
     )
   )
 )
 
 ;**************************************************************************************
-;Definición tipos de datos referencia y blanco. Extractor ref->pos.
+;Definición tipos de datos referencia y blanco.
 
 (define-datatype target target?
   (direct-target (expval expval?))
+  (constant-target (expval expval?))
   (indirect-target (ref ref-to-direct-target?))
 )
 
 (define-datatype reference reference?
-  (a-ref (position integer?) (vec vector?) (const-tags vector?))
-)
-
-; extractor que a partir de una referencia retorna la posición de esta.
-(define ref->pos
-  (lambda (ref)
-    (cases reference ref
-      (a-ref (pos vec const-tags) pos)
-    )
-  )
-)
-
-; extractor que a partir de una referencia retorna el vector de const-tags asociado al env en el que
-; se encuentra la referencia.
-(define ref->const-tags
-  (lambda (ref)
-    (cases reference ref
-      (a-ref (pos vec const-tags) const-tags)
-    )
-  )
+  (a-ref (position integer?) (vec vector?))
 )
 
 ;*******************************************************************************************
@@ -1555,7 +1851,6 @@
   (extended-env-record
     (syms (list-of symbol?))
     (vec vector?)
-    (const-tags vector?)
     (env environment?)
   )
 )
@@ -1574,8 +1869,8 @@
 ;extend-env: <list-of symbols> <list-of numbers> enviroment -> enviroment
 ;función que crea un ambiente extendido
 (define extend-env
-  (lambda (syms vals const-tags env)
-    (extended-env-record syms (list->vector vals) (list->vector const-tags) env)
+  (lambda (syms vals env)
+    (extended-env-record syms (list->vector vals) env)
   )
 )
 
@@ -1584,8 +1879,8 @@
 (define extend-env-recursively
   (lambda (proc-names idss bodies old-env)
     (let ((len (length proc-names)))
-      (let ((vec (make-vector len)) (const-tags (make-vector len #f)))
-        (let ((env (extended-env-record proc-names vec const-tags old-env)))
+      (let ((vec (make-vector len)))
+        (let ((env (extended-env-record proc-names vec old-env)))
           (for-each
             (lambda (pos ids body)
               (vector-set! vec pos (direct-target (closure ids body env)))
@@ -1622,10 +1917,10 @@
   (lambda (env sym)
     (cases environment env
       (empty-env-record () (eopl:error 'apply-env-ref "No binding for ~s" sym))
-      (extended-env-record (syms vals const-tags env)
+      (extended-env-record (syms vals env)
         (let ((pos (rib-find-position sym syms)))
           (if (number? pos)
-            (a-ref pos vals const-tags)
+            (a-ref pos vals)
             (apply-env-ref env sym)
           )
         )
@@ -1659,11 +1954,26 @@
     (and 
       (reference? x)
       (cases reference x
-        (a-ref (pos vec const-tags)
+        (a-ref (pos vec)
           (cases target (vector-ref vec pos)
             (direct-target (v) #t)
+            (constant-target (v) #t)
             (indirect-target (v) #f)
           )
+        )
+      )
+    )
+  )
+)
+
+(define ref-to-constant-target?
+  (lambda (ref)
+    (cases reference ref
+      (a-ref (pos vec)
+        (cases target (vector-ref vec pos)
+          (direct-target (v) #f)
+          (constant-target (v) #t)
+          (indirect-target (ref) (ref-to-constant-target? ref))
         )
       )
     )
@@ -1674,9 +1984,11 @@
   (lambda (ref)
     (cases target (primitive-deref ref)
       (direct-target (expval) expval)
+      (constant-target (expval) expval)
       (indirect-target (ref1)
         (cases target (primitive-deref ref1)
           (direct-target (expval) expval)
+          (constant-target (expval) expval)
           (indirect-target (p) (eopl:error 'deref "Illegal reference: ~s" ref1))
         )
       )
@@ -1687,7 +1999,7 @@
 (define primitive-deref
   (lambda (ref)
     (cases reference ref
-      (a-ref (pos vec const-tags) (vector-ref vec pos))
+      (a-ref (pos vec) (vector-ref vec pos))
     )
   )
 )
@@ -1699,14 +2011,12 @@
         [ref 
           (cases target (primitive-deref ref)
             (direct-target (expval1) ref)
+            (constant-target (expval1) ref)
             (indirect-target (ref1) ref1)
           )
         ]
-        [pos (ref->pos ref)]
-        [const-tags (ref->const-tags ref)]
-        [constant? (vector-ref const-tags pos)]
       )
-      (if constant?
+      (if (ref-to-constant-target? ref)
         (eopl:error 'setref! "Can't modify the state of a constant var")
         (primitive-setref! ref (direct-target expval))
       )
@@ -1717,7 +2027,7 @@
 (define primitive-setref!
   (lambda (ref val)
     (cases reference ref
-      (a-ref (pos vec const-tags) (vector-set! vec pos val))
+      (a-ref (pos vec) (vector-set! vec pos val))
     )
   )
 )
