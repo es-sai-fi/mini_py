@@ -425,10 +425,11 @@
           (apply-primitive prim args)
         )
       )
-      (if-exp (bool-type true-exp false-exp)
-        (if (eval-bool-type bool-type env)
-          (eval-expression true-exp env)
-          (eval-expression false-exp env)
+      (if-exp (b-type true-exp false-exp)
+        (cases bool-type (eval-bool-type b-type env)
+          (true-bool () (eval-expression true-exp env))  
+          (false-bool () (eval-expression false-exp env))
+          (else empty)
         )
       )
       (proc-exp (ids body) (closure ids body env))
@@ -437,10 +438,9 @@
           (
             [proc (eval-expression rator env)]
             [args (eval-rands rands env)]
-            [const-tags (make-list (length args) #f)]
           )
           (if (procval? proc)
-            (apply-procedure proc args const-tags)
+            (apply-procedure proc args)
             (eopl:error 'eval-expression "Attempt to apply non-procedure ~s" proc)
           )
         )
@@ -448,7 +448,7 @@
 
       (set-exp (id rhs-exp)
         (begin
-          (setref! (apply-env-ref env id) (eval-expression rhs-exp env) env)
+          (setref! (apply-env-ref env id) (eval-expression rhs-exp env))
           'setted
         )
       )     
@@ -522,19 +522,19 @@
               (if (list-type? eval-exp-2)
                 (let ([f2 (list-type->first eval-exp-2)] [r2 (list-type->rest eval-exp-2)])
                   (begin
-                    (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (cons f2 r2))) env)
+                    (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (cons f2 r2))))
                     'setted
                   )
                 )
                 (begin
-                  (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (list e2))) env)
+                  (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (list e2))))
                   'setted
                 )
               )
             )
             (empty-list () 
               (begin
-                (setref! (apply-env-ref env id) (non-empty-list e2 empty) env) 
+                (setref! (apply-env-ref env id) (non-empty-list e2 empty)) 
                 'setted
               )
             )
@@ -557,7 +557,7 @@
           (cases list-type eval-exp1
             (non-empty-list (first rest) 
               (begin
-                (setref! (apply-env-ref env id) (set-list-aux (cons first rest) idx e3) env)
+                (setref! (apply-env-ref env id) (set-list-aux (cons first rest) idx e3))
                 'setted
               )
             )
@@ -638,7 +638,7 @@
           (cases dict-type eval-exp-1
             (dict (key val keys vals) 
               (begin
-                (setref! (apply-env-ref env id) (set-dict-aux key val keys vals search-key e2) env) 
+                (setref! (apply-env-ref env id) (set-dict-aux key val keys vals search-key e2)) 
                 'setted
               )
             )
@@ -775,33 +775,12 @@
       ;for cicle
       (for-exp (identifier e2 e3)
         (cases expression e2
-          (var-exp (id) 
-            (let* 
-              (
-                [l/t-type (apply-env env id)] 
-                [first 
-                  (if (list-type? l/t-type) 
-                    (list-type->first l/t-type)
-                    (tuple-type->first l/t-type)
-                  )
-                ] 
-                [rest 
-                  (if (list-type? l/t-type)
-                    (list-type->rest l/t-type)
-                    (tuple-type->rest l/t-type)
-                  )
-                ]
-                [args (eval-for-exp-rands (cons first rest) env)]
-              )
-              (for-exp-aux identifier args e3 env)
-            )
-          )
           (list-exp (list-type) 
             (let* 
               (
                 [first (list-type->first list-type)] 
                 [rest (list-type->rest list-type)]
-                [vals (eval-list/tuple-exp-rands (cons first rest) env)]
+                [vals (eval-for-exp-rands (cons first rest) env)]
               )
               (for-exp-aux identifier vals e3 env)
             )
@@ -811,7 +790,7 @@
               (
                 [first (tuple-type->first tuple-type)] 
                 [rest (tuple-type->rest tuple-type)]
-                [args (eval-list/tuple-exp-rands (cons first rest) env)]
+                [args (eval-for-exp-rands (cons first rest) env)]
               )
               (for-exp-aux identifier args e3 env)
             )
@@ -821,17 +800,22 @@
       )
 
       ;while cicle
-      (while-exp (bool-type body)
-        (let loop ([truth-val (eval-bool-type bool-type env)])
-          (if truth-val
-            (begin
-              (eval-expression body env)
-              (loop (eval-bool-type bool-type env))
+      (while-exp (b-type body)
+        (let loop ([eval-b-type (eval-bool-type b-type env)])
+          (cases bool-type eval-b-type
+            (true-bool ()              
+              (begin
+                (eval-expression body env)
+                (loop (eval-bool-type b-type env))
+              )
             )
-            'done
+            (false-bool () 'done)
+            (else empty)
           )
         )
       )
+
+      ;oop
       (new-object-exp (class-name rands)
         (let ((args (eval-rands rands env)) (obj (new-object class-name)))
           (find-method-and-apply 'initialize class-name obj args) obj
@@ -865,13 +849,16 @@
   (lambda (rand env)
     (cases expression rand
       (var-exp (id)
-        (indirect-target
-          (let ((ref (apply-env-ref env id)))
-            (cases target (primitive-deref ref)
-              (direct-target (expval) ref)
-              (constant-target (expval) ref)
-              (indirect-target (ref1) ref1)
+        (let* ([ref (apply-env-ref env id)] [expval (ref->terminal-value ref)])
+          (if (or (list-type? expval) (dict-type? expval))
+            (indirect-target 
+              (cases target (primitive-deref ref)
+                (direct-target (expval) ref)
+                (constant-target (expval) ref)
+                (indirect-target (ref1) ref1)
+              )
             )
+            (direct-target expval)
           )
         )
       )
@@ -879,16 +866,13 @@
     )
   )
 )
-
-(define eval-list/tuple-exp-rands
-  (lambda (rands env)
-    (map (lambda (x) (eval-list/tuple-exp-rand x env)) rands)
-  )
-)
-
-(define eval-list/tuple-exp-rand
-  (lambda (rand env)
-    (direct-target (eval-expression rand env))
+(define ref->terminal-value
+  (lambda (ref)
+    (cases target (primitive-deref ref)
+      (direct-target (expval) expval)
+      (constant-target (expval) expval)
+      (indirect-target (ref1) (ref->terminal-value ref1))
+    )
   )
 )
 
@@ -900,7 +884,7 @@
 
 (define eval-var-exp-rands
   (lambda (rands env)
-    (map (lambda (x) (eval-var-rand x env)) rands)
+    (map (lambda (x) (eval-var-exp-rand x env)) rands)
   )
 )
 
@@ -916,7 +900,7 @@
   )
 )
 
-(define eval-var-rand
+(define eval-var-exp-rand
   (lambda (rand env)
     (cases expression rand
       (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
@@ -929,11 +913,11 @@
 
 (define eval-const-exp-rands
   (lambda (rands env)
-    (map (lambda (x) (eval-const-rand x env)) rands)
+    (map (lambda (x) (eval-const-exp-rand x env)) rands)
   )
 )
 
-(define eval-const-rand
+(define eval-const-exp-rand
   (lambda (rand env)
     (cases expression rand
       (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
@@ -1406,13 +1390,13 @@
 
 ; función auxixiliar utilizada para implementar procesar types booleanos.
 (define eval-bool-type
-  (lambda (exp env)
-    (cases bool-type exp
+  (lambda (b-type env)
+    (cases bool-type b-type
       (pred-prim-app (pred-prim exp1 exp2) (eval-pred-prim pred-prim exp1 exp2 env))
       (bin-prim-app (bin-prim type1 type2) (eval-bin-prim bin-prim type1 type2 env))
       (un-prim-app (un-prim type) (eval-un-prim un-prim type env))
-      (true-bool () #t)
-      (false-bool () #f)
+      (true-bool () b-type)
+      (false-bool () b-type)
     )
   )
 )
@@ -1423,32 +1407,50 @@
     (cases pred-prim prim
       (lower-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (< val1 val2)
+          (if (< val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (greater-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (> val1 val2)
+          (if (> val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (lower-equal-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (<= val1 val2)
+          (if (<= val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (greater-equal-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (>= val1 val2)
+          (if (>= val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (equal-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (equal? val1 val2)
+          (if (equal? val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (not-equal-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (not (equal? val1 val2))
+          (if (not (equal? val1 val2))
+            (true-bool)
+            (false-bool)
+          )
         )
       )
     )
@@ -1822,7 +1824,7 @@
 
 ;apply-procedure: evalua el cuerpo de un procedimientos en el ambiente extendido correspondiente
 (define apply-procedure
-  (lambda (proc args const-tags)
+  (lambda (proc args)
     (cases procval proc
       (closure (ids body env) (eval-expression body (extend-env ids args env)))
     )
@@ -2005,7 +2007,7 @@
 )
 
 (define setref!
-  (lambda (ref expval env)
+  (lambda (ref expval)
     (let*
       (
         [ref 
