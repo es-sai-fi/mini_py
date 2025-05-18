@@ -324,6 +324,8 @@
     (primitive ("+") add-prim)
     (primitive ("-") substract-prim)
     (primitive ("*") mult-prim)
+    (primitive ("remainder") res-prim)
+    (primitive ("/") div-prim)
     (primitive ("add1") incr-prim)
     (primitive ("sub1") decr-prim)
   )
@@ -412,12 +414,15 @@
       (lit-exp (datum) datum)
       (var-exp (id) (apply-env env id))
       (print-exp (exp) 
-        (cases expression exp
-          (list-exp (list-type) (print-list list-type env))
-          (tuple-exp (tuple-type) (print-tuple tuple-type env))
-          (dict-exp (dict-type) (print-dict dict-type env))
-          (string-exp (str-type) (display (string-type->str str-type)))
-          (else (display (eval-expression exp env)))
+        (begin
+          (cases expression exp
+            (list-exp (list-type) (print-list list-type env))
+            (tuple-exp (tuple-type) (print-tuple tuple-type env))
+            (dict-exp (dict-type) (print-dict dict-type env))
+            (string-exp (str-type) (display (string-type->str str-type)))
+            (else (display (eval-expression exp env)))
+          )
+          (display "\n")
         )
       )
       (primapp-exp (prim rands)
@@ -818,7 +823,7 @@
       ;oop
       (new-object-exp (class-name rands)
         (let ((args (eval-rands rands env)) (obj (new-object class-name)))
-          (find-method-and-apply 'initialize class-name obj args) obj
+          (find-method-and-apply 'initialize class-name obj args)
         )
       )
       (method-app-exp (obj-exp method-name rands)
@@ -888,6 +893,17 @@
   )
 )
 
+(define eval-var-exp-rand
+  (lambda (rand env)
+    (cases expression rand
+      (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (set-list-prim (e1 e2 e3) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (else (direct-target (eval-expression rand env)))
+    )  
+  )
+)
+
 (define eval-for-exp-rands
   (lambda (rands env)
     (map (lambda(x) (eval-for-exp-rand x env)) rands)
@@ -897,17 +913,6 @@
 (define eval-for-exp-rand
   (lambda (rand env)
     (direct-target (eval-expression rand env))
-  )
-)
-
-(define eval-var-exp-rand
-  (lambda (rand env)
-    (cases expression rand
-      (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
-      (set-list-prim (e1 e2 e3) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
-      (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
-      (else (direct-target (eval-expression rand env)))
-    )  
   )
 )
 
@@ -937,6 +942,8 @@
       (mult-prim () (* (car args) (cadr args)))
       (incr-prim () (+ (car args) 1))
       (decr-prim () (- (car args) 1))
+      (res-prim () (remainder (car args) (cadr args)))
+      (div-prim () (/ (car args) (cadr args)))
     )
   )
 )
@@ -1056,7 +1063,7 @@
   (lambda (c-decl)
     (a-part
       (class-decl->class-name c-decl)
-      (make-vector (length (class-decl->field-ids c-decl)))
+      (make-vector (length (class-decl->field-ids c-decl)) (direct-target 0))
     )
   )
 )
@@ -1938,14 +1945,15 @@
   (lambda (x)
     (cond
       ([number? x] #t)
-      ([boolean? x] #t)
       ([procval? x] #t)
+      ([bool-type? x] #t)
       ([list-type? x] #t)
       ([dict-type? x] #t)
       ([tuple-type? x] #t)
       ([string-type? x] #t)
       ([hex-type? x] #t)
       ([circuit-type? x] #t)
+      ([part? x] #t)
       (else #f)
     )
   )
