@@ -275,27 +275,27 @@
     (bool-type (un-prim "(" expression ")") un-prim-app)
 
     ;lists prims
-    (expression ("empty-list?" "(" expression ")") empty-list?-prim)
-    (expression ("list?" "(" expression ")") list?-prim)
-    (expression ("list-append" "(" expression "," expression ")") list-append-prim)
-    (expression ("list-head" "(" expression ")") list-head-prim)
-    (expression ("list-tail" "(" expression ")") list-tail-prim)
-    (expression ("ref-list" "(" expression "," expression ")") ref-list-prim)
-    (expression ("set-list" "(" expression "," expression "," expression ")") set-list-prim)
-    (expression ("list-to-tuple" "(" expression ")") list-to-tuple-prim)
+    (expression ("empty-list?(" expression ")") empty-list?-prim)
+    (expression ("list?(" expression ")") list?-prim)
+    (expression ("list-append(" expression "," expression ")") list-append-prim)
+    (expression ("list-head(" expression ")") list-head-prim)
+    (expression ("list-tail(" expression ")") list-tail-prim)
+    (expression ("ref-list(" expression "," expression ")") ref-list-prim)
+    (expression ("set-list(" expression "," expression "," expression ")") set-list-prim)
+    (expression ("list-to-tuple(" expression ")") list-to-tuple-prim)
 
     ;tuples prims
-    (expression ("empty-tuple?" "(" expression ")") empty-tuple?-prim)
-    (expression ("tuple?" "(" expression ")") tuple?-prim)
-    (expression ("tuple-head" "(" expression ")") tuple-head-prim)
-    (expression ("tuple-tail" "(" expression ")") tuple-tail-prim)
-    (expression ("ref-tuple" "(" expression "," expression ")") ref-tuple-prim)
-    (expression ("tuple-to-list" "(" expression ")") tuple-to-list-prim)
+    (expression ("empty-tuple?(" expression ")") empty-tuple?-prim)
+    (expression ("tuple?(" expression ")") tuple?-prim)
+    (expression ("tuple-head(" expression ")") tuple-head-prim)
+    (expression ("tuple-tail(" expression ")") tuple-tail-prim)
+    (expression ("ref-tuple(" expression "," expression ")") ref-tuple-prim)
+    (expression ("tuple-to-list(" expression ")") tuple-to-list-prim)
 
     ;dicts prims
-    (expression ("dict?" "(" expression ")") dict?-prim)
-    (expression ("ref-dict" "(" expression "," identifier ")") ref-dict-prim)
-    (expression ("set-dict" "(" expression "," identifier "," expression ")") set-dict-prim)
+    (expression ("dict?(" expression ")") dict?-prim)
+    (expression ("ref-dict(" expression "," identifier ")") ref-dict-prim)
+    (expression ("set-dict(" expression "," identifier "," expression ")") set-dict-prim)
 
     ;binary bool prims
     (bin-prim ("and") and-prim)
@@ -317,13 +317,15 @@
     (expression ("dec-to-hex(" expression ")") dec-to-hex-prim)
     (expression ("sum-hex(" expression "," expression ")") sum-hex-prim)
     (expression ("sub-hex(" expression "," expression  ")") sub-hex-prim)
+    (expression ("div-hex(" expression "," expression ")") div-hex-prim)
+    (expression ("modulo-hex(" expression "," expression ")") modulo-hex-prim)
     (expression ("add1-hex(" expression ")") add1-hex-prim)
     (expression ("sub1-hex(" expression ")") sub1-hex-prim)
     (expression ("mulp-hex(" expression "," expression  ")") mulp-hex-prim)
 
     ;string prims
-    (expression ("str-concat" "(" expression "," expression ")") str-concat-prim)
-    (expression ("str-len" "(" expression ")") str-len-prim)
+    (expression ("str-concat(" expression "," expression ")") str-concat-prim)
+    (expression ("str-len(" expression ")") str-len-prim)
 
     ;circuit prims
     (expression ("eval-circuit(" expression ")") eval-circuit-prim)
@@ -334,7 +336,7 @@
     (primitive ("+") add-prim)
     (primitive ("-") substract-prim)
     (primitive ("*") mult-prim)
-    (primitive ("remainder") res-prim)
+    (primitive ("modulo") modulo-prim)
     (primitive ("/") div-prim)
     (primitive ("add1") incr-prim)
     (primitive ("sub1") decr-prim)
@@ -778,6 +780,28 @@
             [dec (hex-to-dec-prim-aux eval-exp)]
           )
           (dec-to-hex-prim-aux (+ dec 1))
+        )
+      )
+      (div-hex-prim (e1 e2)
+        (let* 
+          (
+            [eval-exp-1 (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)]
+            [dec1 (hex-to-dec-prim-aux eval-exp-1)]
+            [dec2 (hex-to-dec-prim-aux eval-exp-2)]
+          )
+          (dec-to-hex-prim-aux (/ dec1 dec2))
+        )
+      )
+      (modulo-hex-prim (e1 e2)
+        (let* 
+          (
+            [eval-exp-1 (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)]
+            [dec1 (hex-to-dec-prim-aux eval-exp-1)]
+            [dec2 (hex-to-dec-prim-aux eval-exp-2)]
+          )
+          (dec-to-hex-prim-aux (modulo dec1 dec2))
         )
       )
 
@@ -1532,7 +1556,7 @@
       (mult-prim () (* (car args) (cadr args)))
       (incr-prim () (+ (car args) 1))
       (decr-prim () (- (car args) 1))
-      (res-prim () (remainder (car args) (cadr args)))
+      (modulo-prim () (modulo (car args) (cadr args)))
       (div-prim () (/ (car args) (cadr args)))
     )
   )
@@ -2361,7 +2385,6 @@
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=dict(x=1) in begin set-dict(x, x, (factorial 30)); ref-dict(x, x) end")
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=list() in begin list-append(x, (factorial 30)); x end")
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var listFactorials = proc(l1, l2) for x in l1 do list-append(l2, (factorial x)) done, l1 = list(1, 2, 3, 4, 5), l2 = list() in begin (listFactorials l1 l2); dict(valores=l1, factoriales=l2) end")
-(scan&parse "var x=x16(+ 1 2) in begin print(sum-hex(x, x)); print(sub-hex(x,x)); print(mulp-hex(x,x)); print(sub1-hex(x)); print(add1-hex(x)) end")
+(scan&parse "var x=x16(+ 1 2) in begin print(sum-hex(x, x)); print(sub-hex(x,x)); print(mulp-hex(x,x)); print(sub1-hex(x)); print(add1-hex(x)); print(div-hex(x, x)); print(remainder-hex(x, x)) end")
 (scan&parse "var x=1 in begin print(+(x, x)); print(-(x,x)); print(*(x,x)); print(sub1(x)); print(add1(x)); print(/(x, x)); print(remainder(x, x)) end")
 
-(interpretador)
