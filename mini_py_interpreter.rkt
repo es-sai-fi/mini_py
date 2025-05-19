@@ -2388,3 +2388,4 @@
 (scan&parse "var x=x16(+ 1 2) in begin print(sum-hex(x, x)); print(sub-hex(x,x)); print(mulp-hex(x,x)); print(sub1-hex(x)); print(add1-hex(x)); print(div-hex(x, x)); print(modulo-hex(x, x)) end")
 (scan&parse "var x=1 in begin print(+(x, x)); print(-(x,x)); print(*(x,x)); print(sub1(x)); print(add1(x)); print(/(x, x)); print(modulo(x, x)) end")
 
+(interpretador)
