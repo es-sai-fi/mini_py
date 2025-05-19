@@ -2385,6 +2385,6 @@
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=dict(x=1) in begin set-dict(x, x, (factorial 30)); ref-dict(x, x) end")
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=list() in begin list-append(x, (factorial 30)); x end")
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var listFactorials = proc(l1, l2) for x in l1 do list-append(l2, (factorial x)) done, l1 = list(1, 2, 3, 4, 5), l2 = list() in begin (listFactorials l1 l2); dict(valores=l1, factoriales=l2) end")
-(scan&parse "var x=x16(+ 1 2) in begin print(sum-hex(x, x)); print(sub-hex(x,x)); print(mulp-hex(x,x)); print(sub1-hex(x)); print(add1-hex(x)); print(div-hex(x, x)); print(remainder-hex(x, x)) end")
-(scan&parse "var x=1 in begin print(+(x, x)); print(-(x,x)); print(*(x,x)); print(sub1(x)); print(add1(x)); print(/(x, x)); print(remainder(x, x)) end")
+(scan&parse "var x=x16(+ 1 2) in begin print(sum-hex(x, x)); print(sub-hex(x,x)); print(mulp-hex(x,x)); print(sub1-hex(x)); print(add1-hex(x)); print(div-hex(x, x)); print(modulo-hex(x, x)) end")
+(scan&parse "var x=1 in begin print(+(x, x)); print(-(x,x)); print(*(x,x)); print(sub1(x)); print(add1(x)); print(/(x, x)); print(modulo(x, x)) end")
 
