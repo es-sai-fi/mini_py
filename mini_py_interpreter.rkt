@@ -2008,6 +2008,17 @@
   )
 )
 
+; extractor que a partir de un class-name retorna la cantidad de fields que se requiere para
+; crear un objeto de esa clase.
+(define class-name->field-length
+  (lambda (class-name)
+    (if (eqv? class-name 'object)
+      0
+      (class->field-length (lookup-class class-name))
+    )
+  )
+)
+
 ; extractor que a partir de un class-name retorna los métodos de la clase.
 (define class-name->methods
   (lambda (class-name)
@@ -2205,7 +2216,7 @@
     )
   )
 )
-
+  
 ; extractor que a partir de un tuple-type retorna todos los elementos menos el primero de este.
 (define tuple-type->rest
   (lambda (t)
@@ -2216,9 +2227,8 @@
   )
 )
 
-;****************************************************************************************
+;*******************************************************************************************
 ;Funciones Auxiliares
-
 
 ; alias para la función list-find-last-position.
 (define rib-find-position 
@@ -2295,18 +2305,7 @@
   )
 )
 
-; función auxiliar que a partir de un class-name retorna la cantidad de fields que se requiere para
-; crear un objeto de esa clase.
-(define class-name->field-length
-  (lambda (class-name)
-    (if (eqv? class-name 'object)
-      0
-      (class->field-length (lookup-class class-name))
-    )
-  )
-)
-
-;******************************************************************************************
+;*******************************************************************************************
 ;Ejemplos de sintaxis
 
 (scan&parse "var x=1, y=2 in x")
