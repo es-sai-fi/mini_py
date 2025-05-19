@@ -8,7 +8,7 @@
 
 ;; La definición BNF para las expresiones del lenguaje:
 ;;
-;;  <program>       ::= <expression>
+;;  <program>       ::= {<class-decl>}* <expression>
 ;;                      <a-program (exp)>
 ;;  <expression>    ::= <number>
 ;;                      <lit-exp (datum)>
@@ -27,8 +27,8 @@
 ;;                  ::= <hex-type>
 ;;                      <hex-exp (h-type)>
 ;;
-;;                  ::= empty-list?(<list-type>)
-;;                      <empty-list?-prim (l-type)>
+;;                  ::= empty-list?(<expression>)
+;;                      <empty-list?-prim (exp)>
 ;;                  ::= list?(<expression>)
 ;;                      <list?-prim (exp)>
 ;;                  ::= list-append(<expression> , <expression>)
@@ -42,8 +42,8 @@
 ;;                  ::= set-list(<expression>, <expression> , <expression>)
 ;;                      <set-list-prim (exp1 exp2 exp3)>
 ;;
-;;                  ::= empty-tuple?(<tuple-type>)
-;;                      <empty-tuple?-prim (t-type)>
+;;                  ::= empty-tuple?(<expression>)
+;;                      <empty-tuple?-prim (exp)>
 ;;                  ::= tuple?(<expression>)
 ;;                      <tuple?-prim (exp)>
 ;;                  ::= tuple-head(<expression>)
@@ -71,7 +71,7 @@
 ;;                  ::= mulp-hex(<expression> , <expression>)
 ;;                      <mulp-hex-prim (exp1 exp2)> 
 ;;                  ::= sub1-hex(<expression>)
-;;                      <sub-hex-prim (exp)>
+;;                      <sub1-hex-prim (exp)>
 ;;                  ::= add1-hex(<expression>)
 ;;                      <add1-hex-prim (exp)>
 ;;
@@ -107,6 +107,17 @@
 ;;                  ::= set <identifier> = <expression>
 ;;                     <set-exp (id rhsexp)>
 ;;
+;;                  ::= new <identifier> ({<expression>}*(,))
+;;                  ::= (new-object-exp (id args))
+;;                  ::= send <expression> <identifier> ({<expression>}*(,))
+;;                  ::= (method-app-exp (exp id args))
+;;                  ::= super <identifier> ({<expression>}*(,))
+;;                  ::= (super-call-exp (id args))
+;;
+;;  <class-decl>    ::= class <identifier> extends <identifier> {field <identifier>}* {method-decl}*
+;;                  ::= (a-class-decl (id super-name fields methods))
+;;  <method-decl>   ::= new <identifier> ({<identifier>}*(,)) <expressions>
+;;                  ::= (a-method-decl (id ids body))
 ;;  <bool-type>     ::= <pred-prim>(<expression> , <expression>)
 ;;                      <pred-prim-app (prim exp1 exp2)>
 ;;                  ::= <bin-prim>(<expression> , <expression>)
@@ -119,14 +130,10 @@
 ;;                      <false-bool ()>
 ;;  <dict-type>     ::= dict({<identifier> = <expression>}+(,))
 ;;                      <dict (key val keys vals)>
-;;  <list-type>     ::= list({<expression>}+(,))
-;;                      <non-empty-list (first rest)>
-;;                  ::= empty-list
-;;                      <empty-list ()>
-;;  <tuple-type>    ::= tuple({<expression>}+(,))
-;;                      <non-empty-tuple (first rest)>
-;;                  ::= empty-tuple
-;;                      <empty-tuple ()>
+;;  <list-type>     ::= list({<expression>}*(,))
+;;                      <a-list (elements)>
+;;  <tuple-type>    ::= tuple({<expression>}*(,))
+;;                      <a-tuple (elements)>
 ;;  <circuit-type>  ::= <gate-list>
 ;;  <gate-list>     ::= empty | <gate> <gate_list>
 ;;  <gate>          ::= <identifier> <type> <input list>
@@ -169,9 +176,23 @@
 )
 
 ;Especificación Sintáctica (gramática)
-
 (define grammar-simple-interpreter
-  '((program (expression) a-program)
+  '((program ((arbno class-decl) expression) a-program)
+
+    ;for debugging purposes
+    (expression ("env") env-exp)
+
+    ;oop
+    (
+      class-decl 
+      ("class" identifier "extends" identifier (arbno "field" identifier) (arbno method-decl)) 
+      a-class-decl
+    )
+    (method-decl("method" identifier "(" (separated-list identifier ",") ")" expression) a-method-decl)
+    (expression ("new" identifier "(" (separated-list expression ",") ")") new-object-exp)
+    (expression ("send" expression identifier "("  (separated-list expression ",") ")") method-app-exp)
+    (expression ("super" identifier    "("  (separated-list expression ",") ")") super-call-exp)
+
     (expression (number) lit-exp)
     (expression (identifier) var-exp)
 
@@ -181,11 +202,11 @@
     (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
 
     ;conditionals
-    (expression ("if" bool-type "then" expression "else" expression "end") if-exp)
+    (expression ("if" expression "then" expression "else" expression "end") if-exp)
 
     ;cicles
     (expression ("for" identifier "in" expression "do" expression "done") for-exp)
-    (expression ("while" bool-type "do" expression "done") while-exp)
+    (expression ("while" expression "do" expression "done") while-exp)
 
     ;procs
     (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
@@ -214,10 +235,10 @@
 
     ;gate-list def
     (gate-list ("empty-gate-list") empty-gate-list)
-    (gate-list ("gate-list" "(" gate (arbno "," gate) ")") a-gate-list)
+    (gate-list ("gate-list" "(" gate (arbno gate) ")") a-gate-list)
 
     ;gate def
-    (gate ("gate(" identifier "," type "," input-list ")") a-gate)
+    (gate ("gate(" identifier type input-list ")") a-gate)
 
     (type ("and") and-type)
     (type ("or") or-type)
@@ -226,7 +247,7 @@
 
     ;input-list def
     (input-list ("empty-input-list") empty-input-list)
-    (input-list ("input-list(" expression (arbno  "," expression) ")") an-input-list)
+    (input-list ("input-list(" expression (arbno expression) ")") an-input-list)
 
     ;hex def
     (hex-type ("x16(-" (arbno number) ")") neg-hex)
@@ -236,15 +257,13 @@
     (string-type ("#" identifier) a-str)
 
     ;list def
-    (list-type ("list(" expression (arbno "," expression) ")") non-empty-list)
-    (list-type ("empty-list") empty-list)
+    (list-type ("list(" (separated-list expression ",") ")") a-list)
 
     ;tuple def
-    (tuple-type ("tuple(" expression (arbno "," expression) ")") non-empty-tuple)
-    (tuple-type ("empty-tuple") empty-tuple)
+    (tuple-type ("tuple(" (separated-list expression ",") ")") a-tuple)
 
     ;dict def
-    (dict-type ("dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") dict)
+    (dict-type ("dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") a-dict)
     
     ;bool def
     (bool-type ("true") true-bool)
@@ -256,20 +275,22 @@
     (bool-type (un-prim "(" expression ")") un-prim-app)
 
     ;lists prims
-    (expression ("empty-list?" "(" list-type ")") empty-list?-prim)
+    (expression ("empty-list?" "(" expression ")") empty-list?-prim)
     (expression ("list?" "(" expression ")") list?-prim)
     (expression ("list-append" "(" expression "," expression ")") list-append-prim)
     (expression ("list-head" "(" expression ")") list-head-prim)
     (expression ("list-tail" "(" expression ")") list-tail-prim)
     (expression ("ref-list" "(" expression "," expression ")") ref-list-prim)
     (expression ("set-list" "(" expression "," expression "," expression ")") set-list-prim)
+    (expression ("list-to-tuple" "(" expression ")") list-to-tuple-prim)
 
     ;tuples prims
-    (expression ("empty-tuple?" "(" tuple-type ")") empty-tuple?-prim)
+    (expression ("empty-tuple?" "(" expression ")") empty-tuple?-prim)
     (expression ("tuple?" "(" expression ")") tuple?-prim)
     (expression ("tuple-head" "(" expression ")") tuple-head-prim)
     (expression ("tuple-tail" "(" expression ")") tuple-tail-prim)
     (expression ("ref-tuple" "(" expression "," expression ")") ref-tuple-prim)
+    (expression ("tuple-to-list" "(" expression ")") tuple-to-list-prim)
 
     ;dicts prims
     (expression ("dict?" "(" expression ")") dict?-prim)
@@ -313,6 +334,8 @@
     (primitive ("+") add-prim)
     (primitive ("-") substract-prim)
     (primitive ("*") mult-prim)
+    (primitive ("remainder") res-prim)
+    (primitive ("/") div-prim)
     (primitive ("add1") incr-prim)
     (primitive ("sub1") decr-prim)
   )
@@ -323,7 +346,8 @@
 (sllgen:make-define-datatypes scanner-spec-simple-interpreter grammar-simple-interpreter)
 
 (define show-the-datatypes
-  (lambda () (sllgen:list-define-datatypes scanner-spec-simple-interpreter grammar-simple-interpreter)))
+  (lambda () (sllgen:list-define-datatypes scanner-spec-simple-interpreter grammar-simple-interpreter))
+)
 
 ;*******************************************************************************************
 ;Parser, Scanner, Interfaz
@@ -341,11 +365,12 @@
 ;El Interpretador (FrontEnd + Evaluación + señal para lectura )
 
 (define interpretador
-  (sllgen:make-rep-loop  "--> "
+  (sllgen:make-rep-loop  
+    "--> "
     (lambda (pgm) (eval-program  pgm)) 
-    (sllgen:make-stream-parser 
-      scanner-spec-simple-interpreter
-      grammar-simple-interpreter)))
+    (sllgen:make-stream-parser scanner-spec-simple-interpreter grammar-simple-interpreter)
+  )
+)
 
 ;*******************************************************************************************
 ;El Interprete
@@ -356,53 +381,38 @@
 (define eval-program
   (lambda (pgm)
     (cases program pgm
-      (a-program (body)
-                 (eval-expression body (init-env))))))
-
-; Ambiente inicial
-;(define init-env
-;  (lambda ()
-;    (extend-env
-;     '(x y z)
-;     '(4 2 5)
-;     (empty-env))))
+      (a-program (c-decls exp)
+        (elaborate-class-decls! c-decls) 
+        (eval-expression exp (init-env))
+      )
+    )
+  )
+)
 
 (define init-env
   (lambda ()
     (extend-env
       '(x y z)
       (list (direct-target 1) (direct-target 5) (direct-target 10))
-      (list #f #f #f)
       (empty-env)
     )
   )
 )
 
-;(define init-env
-;  (lambda ()
-;    (extend-env
-;     '(x y z f)
-;     (list 4 2 5 (closure '(y) (primapp-exp (mult-prim) (cons (var-exp 'y) (cons (primapp-exp (decr-prim) (cons (var-exp 'y) ())) ())))
-;                      (empty-env)))
-;     (empty-env))))
+;**************************************************************************************
 
 ;eval-expression: <expression> <enviroment> -> numero
 ; evalua la expresión en el ambiente de entrada
-
-;**************************************************************************************
-
 (define eval-expression
   (lambda (exp env)
     (cases expression exp
+      (env-exp () env)
       (lit-exp (datum) datum)
       (var-exp (id) (apply-env env id))
       (print-exp (exp) 
-        (cases expression exp
-          (list-exp (list-type) (print-list list-type env))
-          (tuple-exp (tuple-type) (print-tuple tuple-type env))
-          (dict-exp (dict-type) (print-dict dict-type env))
-          (string-exp (str-type) (display (string-type->str str-type)))
-          (else (display (eval-expression exp env)))
+        (begin
+          (display (eval-expression exp env))
+          (display "\n")
         )
       )
       (primapp-exp (prim rands)
@@ -410,10 +420,13 @@
           (apply-primitive prim args)
         )
       )
-      (if-exp (bool-type true-exp false-exp)
-        (if (eval-bool-type bool-type env)
-          (eval-expression true-exp env)
-          (eval-expression false-exp env)
+      (if-exp (test-exp true-exp false-exp)
+        (let ([eval-test-exp (eval-expression test-exp env)])
+          (cases bool-type eval-test-exp
+            (true-bool () (eval-expression true-exp env))  
+            (false-bool () (eval-expression false-exp env))
+            (else empty)
+          )
         )
       )
       (proc-exp (ids body) (closure ids body env))
@@ -422,10 +435,9 @@
           (
             [proc (eval-expression rator env)]
             [args (eval-rands rands env)]
-            [const-tags (make-list (length args) #f)]
           )
           (if (procval? proc)
-            (apply-procedure proc args const-tags)
+            (apply-procedure proc args)
             (eopl:error 'eval-expression "Attempt to apply non-procedure ~s" proc)
           )
         )
@@ -433,10 +445,10 @@
 
       (set-exp (id rhs-exp)
         (begin
-          (setref! (apply-env-ref env id) (eval-expression rhs-exp env) env)
+          (setref! (apply-env-ref env id) (eval-expression rhs-exp env))
           'setted
         )
-      )     
+      )
       (begin-exp (exp exps)
         (let loop ((acc (eval-expression exp env)) (exps exps))
           (if (null? exps) 
@@ -448,13 +460,13 @@
       
       ;decls
       (var-decl-exp (ids rands body) 
-        (let* ([args (eval-let/var/const-exp-rands rands env)] [const-tags (make-list (length args) #f)])
-          (eval-expression body (extend-env ids args const-tags env))
+        (let ([args (eval-var-exp-rands rands env)])
+          (eval-expression body (extend-env ids args env))
         )
       )
       (const-decl-exp (ids rands body)
-        (let* ([args (eval-let/var/const-exp-rands rands env)] [const-tags (make-list (length args) #t)])
-          (eval-expression body (extend-env ids args const-tags env))
+        (let ([args (eval-const-exp-rands rands env)])
+          (eval-expression body (extend-env ids args env))
         )
       )
       (rec-decl-exp (proc-names idss bodies rec-body)
@@ -462,65 +474,66 @@
       )
 
       ;list and list prims
-      (list-exp (l) l)
-      (empty-list?-prim (exp) 
-        (let ([l (eval-expression exp env)])
+      (list-exp (l) (a-list (eval-list/tuple/dict-exp-rands (list-type->elements l) env)))
+      (empty-list?-prim (e) 
+        (let ([l (eval-expression e env)])
           (cases list-type l
-            (empty-list () #t)
-            (else #f)
+            (a-list (elements) (if (null? elements) (true-bool) (false-bool)))
           )
         )
       )
-      (list?-prim (exp) 
-        (let ([l (eval-expression exp env)])
+      (list?-prim (e) 
+        (let ([l (eval-expression e env)])
           (cases list-type l
-            (non-empty-list (first rest) #t)
-            (empty-list () #t)
+            (a-list (elements) (true-bool))
           )
         )
       )
       (list-head-prim (e) 
         (let ([l (eval-expression e env)])
           (cases list-type l
-            (non-empty-list (first rest) (eval-expression first env))
-            (empty-list () (eopl:error 'list-head "Cannot apply 'list-head' to an empty list"))
+            (a-list (elements) 
+              (if (null? elements)
+                (eopl:error 'list-head "Cannot apply 'list-head' to an empty list")
+                (eval-expression (car elements) env)
+              )
+            )
           )
         )       
       )
       (list-tail-prim (e)
         (let ([l (eval-expression e env)])
           (cases list-type l
-            (non-empty-list (first rest) 
-              (if (null? rest)
-                (empty-list)
-                (non-empty-list (car rest) (cdr rest))
+            (a-list (elements) 
+              (if (null? elements)
+                (eopl:error 'list-tail "Cannot apply 'list-tail' to an empty list")
+                (a-list (cdr elements))
               )
             )
-            (empty-list () (eopl:error 'list-tail "Cannot apply 'list-tail' to an empty list"))
           )
         )
       )
       (list-append-prim (e1 e2)
         (let ([eval-exp-1 (eval-expression e1 env)] [eval-exp-2 (eval-expression e2 env)] [id (var-exp->id e1)])
           (cases list-type eval-exp-1
-            (non-empty-list (f1 r1) 
+            (a-list (elements1) 
               (if (list-type? eval-exp-2)
-                (let ([f2 (list-type->first eval-exp-2)] [r2 (list-type->rest eval-exp-2)])
+                (let ([elements2 (list-type->elements eval-exp-2)])
                   (begin
-                    (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (cons f2 r2))) env)
+                    (setref! 
+                      (apply-env-ref env id) 
+                      (a-list (append-aux elements1 (eval-list/tuple/dict-exp-rands elements2 env)))
+                    )
                     'setted
                   )
                 )
                 (begin
-                  (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (list e2))) env)
+                  (setref! 
+                    (apply-env-ref env id) 
+                    (a-list (append-aux elements1 (list (convert-to-exp eval-exp-2))))
+                  )
                   'setted
                 )
-              )
-            )
-            (empty-list () 
-              (begin
-                (setref! (apply-env-ref env id) (non-empty-list e2 empty) env) 
-                'setted
               )
             )
           ) 
@@ -528,102 +541,146 @@
       )
       (ref-list-prim (e1 e2)
         (let ([eval-exp-1 (eval-expression e1 env)] [idx (eval-expression e2 env)])
-          (if (and (exact? idx) (positive? idx))
+          (if (and (exact? idx) (non-negative? idx))
             (cases list-type eval-exp-1
-              (non-empty-list (first rest) (ref-list/tuple-aux (cons first rest) idx env) )
-              (empty-list () (eopl:error 'ref-list "Index out of range"))
+              (a-list (elements) (get-nth-element elements idx env))
             )
             (eopl:error 'ref-list-prim "Index not an exact/positive number")
           )  
         )
       )
       (set-list-prim (e1 e2 e3)
-        (let ([eval-exp1 (eval-expression e1 env)] [idx (eval-expression e2 env)] [id (var-exp->id e1)])
-          (cases list-type eval-exp1
-            (non-empty-list (first rest) 
+        (let 
+          (
+            [eval-exp-1 (eval-expression e1 env)]
+            [eval-exp-3 (eval-expression e3 env)] 
+            [idx (eval-expression e2 env)] 
+            [id (var-exp->id e1)]
+          )
+          (cases list-type eval-exp-1
+            (a-list (elements) 
               (begin
-                (setref! (apply-env-ref env id) (set-list-aux (cons first rest) idx e3) env)
+                (setref! 
+                  (apply-env-ref env id) 
+                  (a-list (set-nth-element elements idx (convert-to-exp eval-exp-3)))
+                )
                 'setted
               )
-            )
-            (empty-list () (eopl:error 'set-list "Index out of range"))
+            )          
+          )
+        )
+      )
+      (list-to-tuple-prim (e)
+        (let ([l (eval-expression e env)])
+          (cases list-type l
+            (a-list (elements) (a-tuple elements))
           )
         )
       )
 
       ;tuple and tuple prims
-      (tuple-exp (tuple) tuple)
-      (empty-tuple?-prim (exp) 
-        (cases tuple-type exp
-          (empty-tuple () #t)
-          (else #f)
+      (tuple-exp (t) (a-tuple (eval-list/tuple/dict-exp-rands (tuple-type->elements t) env)))
+      (empty-tuple?-prim (e) 
+        (let ([t (eval-expression e env)])
+          (cases tuple-type t
+            (a-tuple (elements) (if (null? elements) (true-bool) (false-bool)))
+          )
         )
       )
-      (tuple?-prim (exp) 
-        (cases expression exp
-          (tuple-exp (_) #t)
-          (else #f)
+      (tuple?-prim (e)
+        (let ([t (eval-expression e env)])
+          (cases tuple-type t
+            (a-tuple (elements) (true-bool))
+          )
         )
       )
       (tuple-head-prim (e) 
         (let ([t (eval-expression e env)])
           (cases tuple-type t
-            (non-empty-tuple (first rest) (eval-expression first env))
-            (empty-tuple () (eopl:error 'tuple-head "Cannot apply 'tuple-head' to an empty tuple"))
+            (a-tuple (elements) 
+              (if (null? elements)
+                (eopl:error 'tuple-head "Cannot apply 'list-head' to an empty list")
+                (eval-expression (car elements) env)
+              )
+            )
           )
         )       
       )
       (tuple-tail-prim (e)
         (let ([t (eval-expression e env)])
           (cases tuple-type t
-            (non-empty-tuple (first rest) 
-              (if (null? rest)
-                (empty-tuple)
-                (non-empty-tuple (car rest) (cdr rest))
+            (a-tuple (elements) 
+              (if (null? elements)
+                (eopl:error 'tuple-tail "Cannot apply 'list-tail' to an empty list")
+                (a-list (cdr elements))
               )
             )
-            (empty-tuple () (eopl:error 'tuple-tail "Cannot apply 'tuple-tail' to an empty tuple"))
           )
         )
       )
       (ref-tuple-prim (e1 e2)
         (let ([eval-exp-1 (eval-expression e1 env)] [idx (eval-expression e2 env)])
-          (if (and (exact? idx) (positive? idx))
+          (if (and (exact? idx) (non-negative? idx))
             (cases tuple-type eval-exp-1
-              (non-empty-tuple (first rest) (ref-list/tuple-aux (cons first rest) idx env) )
-              (empty-tuple () (eopl:error 'ref-tuple "Index out of range"))
+              (a-tuple (elements) (get-nth-element elements idx env) )
             )  
             (eopl:error 'ref-tuple-prim "Index not an exact/positive number")
           )
         )
       )
-
-      ;dict and dict prims
-      (dict-exp (d) d)
-      (dict?-prim (exp) 
-        (cases expression exp
-          (dict-exp (_) #t)
-          (else #f)
+      (tuple-to-list-prim (e)
+        (let ([t (eval-expression e env)])
+          (cases tuple-type t
+            (a-tuple (elements) (a-list elements))
+          )
         )
       )
-      (ref-dict-prim (e1 search-key)
-        (let ([eval-exp-1 (eval-expression e1 env)])
-          (cases dict-type eval-exp-1
-            (dict (key val keys vals) 
+
+      ;dict and dict prims
+      (dict-exp (d) 
+        (let 
+          (
+            [key (dict-type->key d)] 
+            [eval-val (eval-expression (dict-type->val d) env)] 
+            [keys (dict-type->keys d)] 
+            [eval-vals (eval-list/tuple/dict-exp-rands (dict-type->vals d) env)]
+          )
+          (a-dict key (convert-to-exp eval-val) keys (convert-to-exps eval-vals))
+        )
+      )
+      (dict?-prim (e) 
+        (let ([d (eval-expression e env)])
+          (cases dict-type d
+            (a-dict (key val keys vals) (true-bool)) 
+          )
+        )
+      )
+      (ref-dict-prim (e search-key)
+        (let ([d (eval-expression e env)])
+          (cases dict-type d
+            (a-dict (key val keys vals) 
               (if (eqv? search-key key)
                 (eval-expression val env)
-                (ref-dict-aux keys vals search-key env)
+                (get-key-value keys vals search-key env)
               )
             )
           )
         )   
       )
       (set-dict-prim (e1 search-key e2)
-        (let ([eval-exp-1 (eval-expression e1 env)] [id (var-exp->id e1)])
-          (cases dict-type eval-exp-1
-            (dict (key val keys vals) 
+        (let 
+          (
+            [d (eval-expression e1 env)] 
+            [eval-exp-2 (eval-expression e2 env)] 
+            [id (var-exp->id e1)]
+          )
+          (cases dict-type d
+            (a-dict (key val keys vals) 
               (begin
-                (setref! (apply-env-ref env id) (set-dict-aux key val keys vals search-key e2) env) 
+                (setref! 
+                  (apply-env-ref env id) 
+                  (set-dict-aux key val keys vals search-key (convert-to-exp eval-exp-2))
+                ) 
                 'setted
               )
             )
@@ -760,23 +817,18 @@
       ;for cicle
       (for-exp (identifier e2 e3)
         (cases expression e2
-          (var-exp (id) 
-            (let* 
+          (var-exp (id)
+            (let*
               (
                 [l/t-type (apply-env env id)] 
-                [first 
-                  (if (list-type? l/t-type) 
-                    (list-type->first l/t-type)
-                    (tuple-type->first l/t-type)
-                  )
-                ] 
-                [rest 
-                  (if (list-type? l/t-type)
-                    (list-type->rest l/t-type)
-                    (tuple-type->rest l/t-type)
+                [elements 
+                  (cond 
+                    ([list-type? l/t-type] (list-type->elements l/t-type))
+                    ([tuple-type? l/t-type] (tuple-type->elements l/t-type))
+                    (else (eopl:error 'for-exp "Not supported type for iterable"))
                   )
                 ]
-                [vals (eval-let/var/const-exp-rands (cons first rest) env)]
+                [vals (eval-for-exp-rands elements env)]
               )
               (for-exp-aux identifier vals e3 env)
             )
@@ -784,9 +836,8 @@
           (list-exp (list-type) 
             (let* 
               (
-                [first (list-type->first list-type)] 
-                [rest (list-type->rest list-type)]
-                [vals (eval-let/var/const-exp-rands (cons first rest) env)]
+                [elements (list-type->elements list-type)]
+                [vals (eval-for-exp-rands elements env)]
               )
               (for-exp-aux identifier vals e3 env)
             )
@@ -794,11 +845,10 @@
           (tuple-exp (tuple-type) 
             (let* 
               (
-                [first (tuple-type->first tuple-type)] 
-                [rest (tuple-type->rest tuple-type)]
-                [vals (eval-let/var/const-exp-rands (cons first rest) env)]
+                [elements (tuple-type->elements tuple-type)]
+                [args (eval-for-exp-rands elements env)]
               )
-              (for-exp-aux identifier vals e3 env)
+              (for-exp-aux identifier args e3 env)
             )
           )
           (else (eopl:error 'for "Not supported type for iterable"))
@@ -806,80 +856,190 @@
       )
 
       ;while cicle
-      (while-exp (bool-type body)
-        (let loop ([truth-val (eval-bool-type bool-type env)])
-          (if truth-val
-            (begin
-              (eval-expression body env)
-              (loop (eval-bool-type bool-type env))
+      (while-exp (test-exp body)
+        (let loop ([eval-test-exp (eval-expression test-exp env)])
+          (cases bool-type eval-test-exp
+            (true-bool ()              
+              (begin
+                (eval-expression body env)
+                (loop (eval-expression test-exp env))
+              )
             )
-            'done
+            (false-bool () 'done)
+            (else empty)
           )
         )
       )
 
-      (else exp)
+      ;oop
+      (new-object-exp (class-name rands)
+        (let ((args (eval-rands rands env)) (obj (new-object class-name)))
+          (find-method-and-apply 'initialize class-name obj args)
+          obj
+        )
+      )
+      (method-app-exp (obj-exp method-name rands)
+        (let ((args (eval-rands rands env)) (obj (eval-expression obj-exp env)))
+          (find-method-and-apply method-name (object->class-name obj) obj args)
+        )
+      )
+      (super-call-exp (method-name rands)
+        (let ((args (eval-rands rands env)) (obj (apply-env env 'self)))
+          (find-method-and-apply method-name (apply-env env '%super) obj args)
+        )
+      )
     )
   )
 )
 
-; funciones auxiliares para aplicar eval-expression a cada elemento de una 
-; lista de operandos (expresiones)
-(define eval-rands
-  (lambda (rands env)
-    (map (lambda (x) (eval-rand x env)) rands)
+;*******************************************************************************************
+;OOP
+
+;definición del tipo de dato clase
+(define-datatype class class?
+  (a-class
+    (class-name symbol?)  
+    (super-name symbol?) 
+    (field-length integer?)  
+    (field-ids (list-of symbol?))
+    (methods (list-of method?))
   )
 )
 
-(define eval-rand
-  (lambda (rand env)
-    (cases expression rand
-      (var-exp (id)
-        (indirect-target
-          (let ((ref (apply-env-ref env id)))
-            (cases target (primitive-deref ref)
-              (direct-target (expval) ref)
-              (indirect-target (ref1) ref1)
-            )
+;definición del tipo de dato método
+(define-datatype method method?
+  (a-method (method-decl method-decl?) (super-name symbol?) (field-ids (list-of symbol?)))
+)
+
+;definición del tipo de dato objeto
+(define-datatype object object? 
+  (an-object
+    (class-name symbol?)
+    (fields vector?)
+  )
+)
+
+; variable global que contendrá todas las clases definidas.
+(define the-class-env '())
+
+; función para inicializar el ambiente de clases.
+(define initialize-class-env!
+  (lambda ()
+    (set! the-class-env '())
+  )
+)
+
+; función para agregar una clase al ambiente de clases.
+(define add-to-class-env!
+  (lambda (class)
+    (set! the-class-env (cons class the-class-env))
+  )
+)
+
+; función para elaborar las declaraciones de clase.
+(define elaborate-class-decls!
+  (lambda (c-decls)
+    (initialize-class-env!)
+    (for-each elaborate-class-decl! c-decls)
+  )
+)
+
+; función para elaborar una declaración de clase.
+(define elaborate-class-decl!
+  (lambda (c-decl)
+    (let ((super-name (class-decl->super-name c-decl)))
+      (let ((field-ids  (append (class-name->field-ids super-name) (class-decl->field-ids c-decl))))
+        (add-to-class-env!
+          (a-class
+            (class-decl->class-name c-decl)
+            super-name
+            (length field-ids)
+            field-ids
+            (roll-up-method-decls c-decl super-name field-ids)
           )
         )
       )
-      (else (direct-target (eval-expression rand env)))
     )
   )
 )
 
-(define eval-primapp-exp-rands
-  (lambda (rands env)
-    (map (lambda (x) (eval-expression x env)) rands)))
-
-(define eval-let/var/const-exp-rands
-  (lambda (rands env)
-    (map (lambda (x) (eval-let/var/const-rand x env)) rands)
-  )
-)
-
-(define eval-let/var/const-rand
-  (lambda (rand env)
-    (cases expression rand
-      (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
-      (set-list-prim (e1 e2 e3) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
-      (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
-      (else (direct-target (eval-expression rand env)))
-    )  
-  )
-)
-
-;apply-primitive: <primitiva> <list-of-expression> -> numero
-(define apply-primitive
-  (lambda (prim args)
-    (cases primitive prim
-      (add-prim () (+ (car args) (cadr args)))
-      (substract-prim () (- (car args) (cadr args)))
-      (mult-prim () (* (car args) (cadr args)))
-      (incr-prim () (+ (car args) 1))
-      (decr-prim () (- (car args) 1))
+; función para obtener los métodos de una class-decl.
+(define roll-up-method-decls
+  (lambda (c-decl super-name field-ids)
+    (map
+      (lambda (m-decl) (a-method m-decl super-name field-ids))
+      (class-decl->method-decls c-decl)
     )
+  )
+)
+
+; función que busca una clase dentro del ambiente de clases.
+(define lookup-class                    
+  (lambda (name)
+    (let loop ((env the-class-env))
+      (cond
+        ((null? env) (eopl:error 'lookup-class "Unknown class ~s" name))
+        ((eqv? (class->class-name (car env)) name) (car env))
+        (else (loop (cdr env)))
+      )
+    )
+  )
+)
+
+; función que busca el método asociado al nombre dado y lo aplica al objeto dado.
+(define find-method-and-apply
+  (lambda (m-name host-name self args)
+    (let loop((host-name host-name))
+      (if (eqv? host-name 'object)
+        (eopl:error 'find-method-and-apply "No method for name ~s" m-name)
+        (let ((method (lookup-method m-name (class-name->methods host-name))))
+          (if (method? method)
+            (apply-method method host-name self args)
+            (loop (class-name->super-name host-name))
+          )
+        )
+      )
+    )
+  )
+)
+
+; función que busca el método asociado al nombre dado en una lista de métodos dada.
+(define lookup-method                   
+  (lambda (m-name methods)
+    (cond
+      ((null? methods) #f)
+      ((eqv? m-name (method->method-name (car methods))) (car methods))
+      (else (lookup-method m-name (cdr methods)))
+    )
+  )
+)
+
+; función que aplica un método a un objeto dado.
+(define apply-method
+  (lambda (method host-name self args) 
+    (let 
+      (
+        (ids (method->ids method))
+        (body (method->body method))
+        (super-name (method->super-name method))
+        (field-ids (method->field-ids method))       
+        (fields (object->fields self))
+      )
+      (eval-expression body
+        (extend-env
+          (cons '%super (cons 'self ids))
+          (cons (direct-target super-name) (cons (direct-target self) args))
+          (extended-env-record field-ids fields (empty-env))
+        )
+      )
+    )
+  )
+)
+
+; función que crea un nuevo objeto de la clase asociada al nombre de clase dado.
+(define new-object
+  (lambda (class-name)
+    (an-object class-name (make-vector (class-name->field-length class-name) (direct-target 0)))
   )
 )
 
@@ -891,70 +1051,14 @@
 ; body en este nuevo ambiente, este proceso termina hasta que ya no hayan más valores en vals y por
 ; ende no iteraciones a realizar.
 (define for-exp-aux
-  (lambda (id vals body env)
-    (if (null? vals)
+  (lambda (id args body env)
+    (if (null? args)
       'done
       (begin 
         body
-        (eval-expression body (extend-env (list id) (list (car vals)) (list #t) env))
+        (eval-expression body (extend-env (list id) (list (car args)) env))
         (display "\n")
-        (for-exp-aux id (cdr vals) body env)  
-      )
-    )
-  )
-)
-
-;*******************************************************************************************
-;print-exp
-
-; estas funciones hacen más amigable el lenguaje permitiendo mostrarle al usuario una traducción de la
-; sintaxis abstracta que se entrega al trabajar con listas/tuplas/diccionarios.
-
-; función auxiliar utilizada para la implementación de print en el case list-exp. "Imprime" una lista.
-(define print-list
-  (lambda (l env)
-    (cases list-type l
-      (non-empty-list (first rest) (display (eval-primapp-exp-rands (cons first rest) env)))
-      (empty-list () (display 'empty-list))
-    )
-  )
-)
-
-; función auxiliar utilizada para la implementación de print en el case tuple-exp. "Imprime" una tupla.
-(define print-tuple
-  (lambda (t env)
-    (cases tuple-type t
-      (non-empty-tuple (first rest) (display (eval-primapp-exp-rands (cons first rest) env)))
-      (empty-tuple () (display 'empty-tuple))
-    )
-  )
-)
-
-; función auxiliar utilizada para la implementación de print en el case dict-exp. "Imprime" un dict.
-(define print-dict
-  (lambda (d env)
-    (cases dict-type d
-      (dict (key val keys vals) 
-        (display 
-          (append-aux 
-            (list (list key (eval-expression val env))) 
-            (print-rest-dict-pairs keys vals env)
-          )
-        )
-      )
-    )
-  )
-)
-
-; función auxiliar utilizada para imprimir los keys y vals de un diccionario después del primer par
-; llave, valor.
-(define print-rest-dict-pairs
-  (lambda (keys vals env)
-    (if (null? keys)
-      empty
-      (cons 
-        (list (car keys) (eval-expression (car vals) env)) 
-        (print-rest-dict-pairs (cdr keys) (cdr vals) env)
+        (for-exp-aux id (cdr args) body env)  
       )
     )
   )
@@ -1075,6 +1179,23 @@
   )
 )
 
+; función que a partir de un gate-list retorna el identificador de su último gate
+(define return-last-identifier
+  (lambda (glist)
+    (let ([first (gate-list->first glist)] [rest (gate-list->rest glist)])
+      (if (null? first)
+        (eopl:error 'return-last-identifier "No last identifier for an empty gate-list")
+        (let loop([first first] [rest rest])
+          (if (null? rest)
+            (gate->identifier first)
+            (loop (car rest) (cdr rest))
+          )
+        )
+      )
+    )
+  )
+)
+
 ; función que reemplaza el input-list de un gate por el resultado de llamar a replace-input-list con
 ; el input-list del gate, el id a reemplazar y el id por el cual se va a reemplazar.
 (define replace-gate-input-list
@@ -1134,7 +1255,7 @@
   )
 )
 
-; función auxiliar que retorna una lista con la representación hexadecimal de un número decimal
+; función que retorna una lista con la representación hexadecimal de un número decimal
 ; (en la práctica solo funciona con enteros).
 (define dec->hex
   (lambda (val)
@@ -1150,17 +1271,6 @@
   )
 )
 
-; función auxiliar que que convierte una representación basada en listas de un hexadecimal a un
-; número decimal (en la práctica retorna solo enteros).
-(define hex->dec
-  (lambda (vals n)
-    (if (null? vals)
-      0
-      (+ (hex->dec (cdr vals) (+ n 1)) (* (car vals) (expt 16 n)))
-    )
-  )
-)
-
 ; función auxiliar utilizada para la implementación de la primitiva hex-to-dec-prim-aux. Retorna el
 ; valor correspondiente a la representación hexadecimal mediante listas ingresada.
 (define hex-to-dec-prim-aux
@@ -1172,7 +1282,18 @@
   )
 )
 
-; función auxiliar que verifica si los valores de un número hexadecimal son válidos.
+; función que convierte una representación basada en listas de un hexadecimal a un
+; número decimal (en la práctica retorna solo enteros).
+(define hex->dec
+  (lambda (vals n)
+    (if (null? vals)
+      0
+      (+ (hex->dec (cdr vals) (+ n 1)) (* (car vals) (expt 16 n)))
+    )
+  )
+)
+
+; función que verifica si los valores de un número hexadecimal son válidos.
 (define valid-hex?
   (lambda (vals)
     (let 
@@ -1185,7 +1306,7 @@
   )
 )
 
-; función auxiliar que verifica si los valores de una lista se encuentran en el rango (-16, 16).
+; función que verifica si los valores de una lista se encuentran en el rango (-16, 16).
 (define valid-hex-range?
   (lambda (vals)
     (cond
@@ -1210,15 +1331,15 @@
 ;*******************************************************************************************
 ;Bools
 
-; función auxixiliar utilizada para implementar procesar types booleanos.
+; función utilizada para procesar types booleanos.
 (define eval-bool-type
-  (lambda (exp env)
-    (cases bool-type exp
+  (lambda (b-type env)
+    (cases bool-type b-type
       (pred-prim-app (pred-prim exp1 exp2) (eval-pred-prim pred-prim exp1 exp2 env))
       (bin-prim-app (bin-prim type1 type2) (eval-bin-prim bin-prim type1 type2 env))
       (un-prim-app (un-prim type) (eval-un-prim un-prim type env))
-      (true-bool () #t)
-      (false-bool () #f)
+      (true-bool () b-type)
+      (false-bool () b-type)
     )
   )
 )
@@ -1229,32 +1350,50 @@
     (cases pred-prim prim
       (lower-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (< val1 val2)
+          (if (< val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (greater-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (> val1 val2)
+          (if (> val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (lower-equal-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (<= val1 val2)
+          (if (<= val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (greater-equal-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (>= val1 val2)
+          (if (>= val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (equal-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (equal? val1 val2)
+          (if (equal? val1 val2)
+            (true-bool)
+            (false-bool)
+          )
         )
       )
       (not-equal-prim () 
         (let ([val1 (eval-expression exp1 env)] [val2 (eval-expression exp2 env)])
-          (not (equal? val1 val2))
+          (if (not (equal? val1 val2))
+            (true-bool)
+            (false-bool)
+          )
         )
       )
     )
@@ -1295,41 +1434,26 @@
 ;*******************************************************************************************
 ;Lists/Tuples
 
-; función auxiliar utilizada para implementar la primitiva ref-list. Retorna el valor en el índice
-; indicado.
-(define ref-list/tuple-aux
+; Función que retorna el elemento n-ésimo de una lista.
+(define get-nth-element
   (lambda (l idx env)
     (if (null? l)
       (eopl:error 'ref-list "Index out of range")
       (if (= idx 0)
         (eval-expression (car l) env)
-        (ref-list/tuple-aux (cdr l) (- idx 1) env)
-      )
-    )
-  )
-)
-
-; función auxiliar utilizada para implementar la primitiva set-list. Retorna una nueva lista donde el
-; valor en el índice indicado es reemplazado por el nuevo valor indicado.
-(define set-list-aux
-  (lambda (l idx val)
-    (if (null? l)
-      (eopl:error 'set-list "Index out of range")
-      (if (= idx 0)
-        (non-empty-list val (cdr l))
-        (non-empty-list (car l) (replace-nth-element (cdr l) idx val))
+        (get-nth-element (cdr l) (- idx 1) env)
       )
     )
   )
 )
 
 ; función auxiliar que reemplaza el n-ésimo elemento de una lista por el valor indicado.
-(define replace-nth-element
+(define set-nth-element
   (lambda (l idx val)
     (cond
-      ([null? l] (eopl:error 'set-list "Index out of range"))
+      ([null? l] (eopl:error 'set-nth-element "Index out of range"))
       ([= idx 0] (cons val (cdr l)))
-      (else (cons (car l) (replace-nth-element (cdr l) (- idx 1) val)))
+      (else (cons (car l) (set-nth-element (cdr l) (- idx 1) val)))
     )
   )
 )
@@ -1339,13 +1463,13 @@
 
 ; función auxiliar utilizada para implementar la primitiva ref-dict. Retorna el valor asociado a la
 ; llave indicada.
-(define ref-dict-aux
+(define get-key-value
   (lambda (ids rands search-id env)
     (if (null? ids)
       (eopl:error 'ref-dict "Key not found")
       (if (eqv? search-id (car ids))
         (eval-expression (car rands) env)
-        (ref-dict-aux (cdr ids) (cdr rands) search-id env)
+        (get-key-value (cdr ids) (cdr rands) search-id env)
       )
     )
   )
@@ -1356,15 +1480,15 @@
 (define set-dict-aux
   (lambda (key val keys vals search-key new-val)
     (cond 
-      ([eqv? search-key key] (dict key new-val keys vals))
+      ([eqv? search-key key] (a-dict key new-val keys vals))
       ([null? keys] (eopl:error 'set-dict "Key not found"))
-      (else (dict key val keys (replace-dict-vals-element keys vals search-key new-val)))
+      (else (a-dict key val keys (replace-dict-vals-element keys vals search-key new-val)))
     )
   )
 )
 
-; función auxiliar que recorre desde la segunda key hasta la última y reemplaza el valor 
-; correspondiente a esa key con el nuevo valor.
+; función que recorre una dos listas de elementos y reemplaza el valor correspondiente al key dado 
+; con el nuevo valor dado en esa lista de elementos.
 (define replace-dict-vals-element
   (lambda (keys vals search-key new-val)
     (cond
@@ -1376,7 +1500,506 @@
 )
 
 ;*******************************************************************************************
+;Procedimientos
+
+;definición del tipo de dato procedimiento
+(define-datatype procval procval?
+  (closure
+   (ids (list-of symbol?))
+   (body expression?)
+   (env environment?)
+  )
+)
+
+;apply-procedure: evalua el cuerpo de un procedimientos en el ambiente extendido correspondiente
+(define apply-procedure
+  (lambda (proc args)
+    (cases procval proc
+      (closure (ids body env) (eval-expression body (extend-env ids args env)))
+    )
+  )
+)
+
+;*******************************************************************************************
+;Primitives
+
+;apply-primitive: <primitiva> <list-of-expression> -> numero
+(define apply-primitive
+  (lambda (prim args)
+    (cases primitive prim
+      (add-prim () (+ (car args) (cadr args)))
+      (substract-prim () (- (car args) (cadr args)))
+      (mult-prim () (* (car args) (cadr args)))
+      (incr-prim () (+ (car args) 1))
+      (decr-prim () (- (car args) 1))
+      (res-prim () (remainder (car args) (cadr args)))
+      (div-prim () (/ (car args) (cadr args)))
+    )
+  )
+)
+
+;*******************************************************************************************
+;Environments
+
+;definición del tipo de dato ambiente
+(define-datatype environment environment?
+  (empty-env-record)
+  (extended-env-record
+    (syms (list-of symbol?))
+    (vec vector?)
+    (env environment?)
+  )
+)
+
+;empty-env: -> enviroment
+;función que crea un ambiente vacío
+(define empty-env  
+  (lambda ()
+    (empty-env-record) ;llamado al constructor de ambiente vacío 
+  ) 
+)       
+
+
+;extend-env: <list-of symbols> <list-of numbers> enviroment -> enviroment
+;función que crea un ambiente extendido
+(define extend-env
+  (lambda (syms vals env)
+    (extended-env-record syms (list->vector vals) env)
+  )
+)
+
+;extend-env-recursively: <list-of symbols> <list-of <list-of symbols>> <list-of expressions> environment -> environment
+;función que crea un ambiente extendido para procedimientos recursivos
+(define extend-env-recursively
+  (lambda (proc-names idss bodies old-env)
+    (let ((len (length proc-names)))
+      (let ((vec (make-vector len)))
+        (let ((env (extended-env-record proc-names vec old-env)))
+          (for-each
+            (lambda (pos ids body)
+              (vector-set! vec pos (direct-target (closure ids body env)))
+            ) 
+            (iota len) idss bodies
+          ) 
+          env
+        )
+      )
+    )
+  )
+)
+
+;iota: number -> list
+;función que retorna una lista de los números desde 0 hasta end
+(define iota
+  (lambda (end)
+    (let loop ((next 0))
+      (if (>= next end) '()
+        (cons next (loop (+ 1 next)))
+      )
+    )
+  )
+)
+
+;función que busca un símbolo en un ambiente
+(define apply-env
+  (lambda (env sym)
+    (deref (apply-env-ref env sym))
+  )
+)
+
+;función que retorna la referencia de un símbolo en un ambiente.
+(define apply-env-ref
+  (lambda (env sym)
+    (cases environment env
+      (empty-env-record () (eopl:error 'apply-env-ref "No binding for ~s" sym))
+      (extended-env-record (syms vals env)
+        (let ((pos (rib-find-position sym syms)))
+          (if (number? pos)
+            (a-ref pos vals)
+            (apply-env-ref env sym)
+          )
+        )
+      )
+    )
+  )
+)
+
+;**************************************************************************************
+;Targets and References
+
+;definición del tipo de dato blanco
+(define-datatype target target?
+  (direct-target (expval expval?))
+  (constant-target (expval expval?))
+  (indirect-target (ref ref-to-direct-target?))
+)
+
+;definición del tipo de dato referencia
+(define-datatype reference reference?
+  (a-ref (position integer?) (vec vector?))
+)
+
+; función que determina si un valor contenido en un target es válido o no. En la práctica, determina
+; que se puede guardar o no en un ambiente.
+(define expval?
+  (lambda (x)
+    (cond
+      ([number? x] #t)
+      ([procval? x] #t)
+      ([bool-type? x] #t)
+      ([list-type? x] #t)
+      ([dict-type? x] #t)
+      ([tuple-type? x] #t)
+      ([string-type? x] #t)
+      ([hex-type? x] #t)
+      ([circuit-type? x] #t)
+      ([object? x] #t)
+      ([symbol? x] #t)
+      (else #f)
+    )
+  )
+)
+
+; función que verifica si una referencia apunta a un target directo o no.
+(define ref-to-direct-target?
+  (lambda (x)
+    (and 
+      (reference? x)
+      (cases reference x
+        (a-ref (pos vec)
+          (cases target (vector-ref vec pos)
+            (direct-target (v) #t)
+            (constant-target (v) #t)
+            (indirect-target (v) #f)
+          )
+        )
+      )
+    )
+  )
+)
+
+; función que verifica si una referencia apunta a un target constante o no.
+(define ref-to-constant-target?
+  (lambda (ref)
+    (cases reference ref
+      (a-ref (pos vec)
+        (cases target (vector-ref vec pos)
+          (direct-target (v) #f)
+          (constant-target (v) #t)
+          (indirect-target (ref) (ref-to-constant-target? ref))
+        )
+      )
+    )
+  )
+)
+
+; función que a partir de una referencia retorna el valor asociado a esta. Si el valor es un indirect-
+; target entonces se retorna el valor de la referencia del indirect-target.
+(define ref->terminal-value
+  (lambda (ref)
+    (cases target (primitive-deref ref)
+      (direct-target (expval) expval)
+      (constant-target (expval) expval)
+      (indirect-target (ref1) (ref->terminal-value ref1))
+    )
+  )
+)
+
+; función que retorna el valor de una referencia. Abre la referencia y dependiendo de que tipo de
+; target es, retorna el valor de la referencia actual o el de la referencia contenida en el
+; indirect-target.
+(define deref
+  (lambda (ref)
+    (cases target (primitive-deref ref)
+      (direct-target (expval) expval)
+      (constant-target (expval) expval)
+      (indirect-target (ref1)
+        (cases target (primitive-deref ref1)
+          (direct-target (expval) expval)
+          (constant-target (expval) expval)
+          (indirect-target (p) (eopl:error 'deref "Illegal reference: ~s" ref1))
+        )
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para implementar la primitiva deref. Abre la referencia y retorna el
+; valor de esta.
+(define primitive-deref
+  (lambda (ref)
+    (cases reference ref
+      (a-ref (pos vec) (vector-ref vec pos))
+    )
+  )
+)
+
+; función que modifica el valor de una referencia. Abre la referencia y dependiendo de si el valor es
+; un indirect-target o no retorna una referencia u otra, luego, verifica si esta referencia apunta
+; a un target constante o no, si no lo es, se modifica el valor de la referencia.
+(define setref!
+  (lambda (ref expval)
+    (let*
+      (
+        [ref 
+          (cases target (primitive-deref ref)
+            (direct-target (expval1) ref)
+            (constant-target (expval1) ref)
+            (indirect-target (ref1) ref1)
+          )
+        ]
+      )
+      (if (ref-to-constant-target? ref)
+        (eopl:error 'setref! "Can't modify the state of a constant var")
+        (primitive-setref! ref (direct-target expval))
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para implementar setref!. Modifica el valor de una referencia.
+(define primitive-setref!
+  (lambda (ref val)
+    (cases reference ref
+      (a-ref (pos vec) (vector-set! vec pos val))
+    )
+  )
+)
+;*******************************************************************************************
 ;Extractors
+
+; extractor que a partir de una class-decl retorna su class-name
+(define class-decl->class-name
+  (lambda (c-decl)
+    (cases class-decl c-decl
+      (a-class-decl (class-name super-name field-ids m-decls) class-name)
+    )
+  )
+)
+
+; extractor que a partir de una class-decl retorna su super-name
+(define class-decl->super-name
+  (lambda (c-decl)
+    (cases class-decl c-decl
+      (a-class-decl (class-name super-name field-ids m-decls) super-name)
+    )
+  )
+)
+
+; extractor que a partir de una class-decl retorna sus field-ids
+(define class-decl->field-ids
+  (lambda (c-decl)
+    (cases class-decl c-decl
+      (a-class-decl (class-name super-name field-ids m-decls) field-ids)
+    )
+  )
+)
+
+; extractor que a partir de una class-decl retorna sus métodos
+(define class-decl->method-decls
+  (lambda (c-decl)
+    (cases class-decl c-decl
+      (a-class-decl (class-name super-name field-ids m-decls) m-decls)
+    )
+  )
+)
+
+; extractor que a partir de un method-decl retorna su method-name
+(define method-decl->method-name
+  (lambda (md)
+    (cases method-decl md
+      (a-method-decl (method-name ids body) method-name)
+    )
+  )
+)
+
+; extractor que a partir de un method-decl retorna su ids
+(define method-decl->ids
+  (lambda (md)
+    (cases method-decl md
+      (a-method-decl (method-name ids body) ids)
+    )
+  )
+)
+
+; extractor que a partir de un method-decl retorna su body
+(define method-decl->body
+  (lambda (md)
+    (cases method-decl md
+      (a-method-decl (method-name ids body) body)
+    )
+  )
+)
+
+; extractor que a partir de una lista de method-decls retorna una lista con los nombres de los métodos.
+(define method-decls->method-names
+  (lambda (mds)
+    (map method-decl->method-name mds)
+  )
+)
+
+; extractor que a partir de una clase retorna su class-name.
+(define class->class-name
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) class-name)
+    )
+  )
+)
+
+; extractor que a partir de una clase retorna su super-name.
+(define class->super-name
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) super-name)
+    )
+  )
+)
+
+; extractor que a partir de una clase retorna su field-length.
+(define class->field-length
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) field-length)
+    )
+  )
+)
+
+; extractor que a partir de una clase retorna sus field-ids.
+(define class->field-ids
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) field-ids)
+    )
+  )
+)
+
+; extractor que a partir de una clase retorna sus métodos.
+(define class->methods
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) methods)
+    )
+  )
+)
+
+; "extractor" que a partir de un class-name retorna el super-name de la clase.
+(define class-name->super-name
+  (lambda (class-name)
+    (class->super-name (lookup-class class-name))
+  )
+)
+
+; "extractor" que a partir de un class-name retorna los field-ids de la clase.
+(define class-name->field-ids
+  (lambda (class-name)
+    (if (eqv? class-name 'object) 
+      '()
+      (class->field-ids (lookup-class class-name))
+    )
+  )
+)
+
+; "extractor" que a partir de un class-name retorna la cantidad de fields que se requiere para
+; crear un objeto de esa clase.
+(define class-name->field-length
+  (lambda (class-name)
+    (if (eqv? class-name 'object)
+      0
+      (class->field-length (lookup-class class-name))
+    )
+  )
+)
+
+; "extractor" que a partir de un class-name retorna los métodos de la clase.
+(define class-name->methods
+  (lambda (class-name)
+    (if (eqv? class-name 'object) 
+      '()
+      (class->methods (lookup-class class-name))
+    )
+  )
+)
+
+; extractor que a partir de un método retorna su method-decl
+(define method->method-decl
+  (lambda (meth)
+    (cases method meth
+      (a-method (meth-decl super-name field-ids) meth-decl)
+    )
+  )
+)
+
+; extractor que a partir de un método retorna su super-name
+(define method->super-name
+  (lambda (meth)
+    (cases method meth
+      (a-method (meth-decl super-name field-ids) super-name)
+    )
+  )
+)
+
+; extractor que a partir de un método retorna su field-ids
+(define method->field-ids
+  (lambda (meth)
+    (cases method meth
+      (a-method (method-decl super-name field-ids) field-ids)
+    )
+  )
+)
+
+; "extractor" que a partir de un método retorna su nombre
+(define method->method-name
+  (lambda (method)
+    (method-decl->method-name (method->method-decl method))
+  )
+)
+
+; "extractor" que a partir de un método retorna su body
+(define method->body
+  (lambda (method)
+    (method-decl->body (method->method-decl method))
+  )
+)
+
+; "extractor" que a partir de un método retorna su ids
+(define method->ids
+  (lambda (method)
+    (method-decl->ids (method->method-decl method))
+  )
+)
+
+; extractor que a partir de un objeto retorna su class-name
+(define object->class-name
+  (lambda (obj)
+    (cases object obj
+      (an-object (class-name fields) class-name)
+    )
+  )
+)
+
+; extractor que a partir de un objeto retorna sus fields
+(define object->fields
+  (lambda (obj)
+    (cases object obj
+      (an-object (class-decl fields) fields)
+    )
+  )
+)
+
+; "extractor" que a partir de un objeto retorna su class-decl
+(define object->class-decl
+  (lambda (obj)
+    (lookup-class (object->class-name obj))
+  )
+)
+
+; "extractor" que a partir de un objeto retorna sus field-ids
+(define object->field-ids
+  (lambda (object)
+    (class->field-ids (object->class-decl object))
+  )
+)
 
 ; extractor que a partir de un circuito retorna su gate-list
 (define circuit->gate-list
@@ -1456,268 +2079,56 @@
   )
 )
 
-; extractor que a partir de un list-type retorna el primer elemento de este.
-(define list-type->first
+; extractor que a partir de un list-type retorna los elementos de este.
+(define list-type->elements
   (lambda (l)
     (cases list-type l
-      (non-empty-list (first rest) first)
-      (empty-list () empty)
+      (a-list (elements) elements)
     )
   )
 )
 
-; extractor que a partir de un list-type retorna todos los elementos menos el primero de este.
-(define list-type->rest
-  (lambda (l)
-    (cases list-type l
-      (non-empty-list (first rest) rest)
-      (empty-list () empty)
-    )
-  )
-)
-
-; extractor que a partir de un tuple-type retorna el primer elemento de este.
-(define tuple-type->first
+; extractor que a partir de un tuple-type retorna los elementos de este.
+(define tuple-type->elements
   (lambda (t)
     (cases tuple-type t
-      (non-empty-tuple (first rest) first)
-      (empty-tuple () empty)
+      (a-tuple (elements) elements)
     )
   )
 )
 
-; extractor que a partir de un tuple-type retorna todos los elementos menos el primero de este.
-(define tuple-type->rest
-  (lambda (t)
-    (cases tuple-type t
-      (non-empty-tuple (first rest) rest)
-      (empty-tuple () empty)
+; extractor que a partir de un dict-type la primer llave de este.
+(define dict-type->key
+  (lambda (d)
+    (cases dict-type d
+      (a-dict (key val keys vals) key)
     )
   )
 )
 
-;*******************************************************************************************
-;Procedimientos
-(define-datatype procval procval?
-  (closure
-   (ids (list-of symbol?))
-   (body expression?)
-   (env environment?)
-  )
-)
-
-;apply-procedure: evalua el cuerpo de un procedimientos en el ambiente extendido correspondiente
-(define apply-procedure
-  (lambda (proc args const-tags)
-    (cases procval proc
-      (closure (ids body env) (eval-expression body (extend-env ids args const-tags env)))
+; extractor que a partir de un dict-type retorna las llaves después de la primer llave.
+(define dict-type->keys
+  (lambda (d)
+    (cases dict-type d
+      (a-dict (key val keys vals) keys)
     )
   )
 )
 
-;**************************************************************************************
-;Definición tipos de datos referencia y blanco. Extractor ref->pos.
-
-(define-datatype target target?
-  (direct-target (expval expval?))
-  (indirect-target (ref ref-to-direct-target?))
-)
-
-(define-datatype reference reference?
-  (a-ref (position integer?) (vec vector?) (const-tags vector?))
-)
-
-; extractor que a partir de una referencia retorna la posición de esta.
-(define ref->pos
-  (lambda (ref)
-    (cases reference ref
-      (a-ref (pos vec const-tags) pos)
+; extractor que a partir de un dict-type retorna el valor asociado a la primer llave.
+(define dict-type->val
+  (lambda (d)
+    (cases dict-type d
+      (a-dict (key val keys vals) val)
     )
   )
 )
 
-; extractor que a partir de una referencia retorna el vector de const-tags asociado al env en el que
-; se encuentra la referencia.
-(define ref->const-tags
-  (lambda (ref)
-    (cases reference ref
-      (a-ref (pos vec const-tags) const-tags)
-    )
-  )
-)
-
-;*******************************************************************************************
-;Ambientes
-
-;definición del tipo de dato ambiente
-(define-datatype environment environment?
-  (empty-env-record)
-  (extended-env-record
-    (syms (list-of symbol?))
-    (vec vector?)
-    (const-tags vector?)
-    (env environment?)
-  )
-)
-
-(define scheme-value? (lambda (v) #t))
-
-;empty-env:      -> enviroment
-;función que crea un ambiente vacío
-(define empty-env  
-  (lambda ()
-    (empty-env-record) ;llamado al constructor de ambiente vacío 
-  ) 
-)       
-
-
-;extend-env: <list-of symbols> <list-of numbers> enviroment -> enviroment
-;función que crea un ambiente extendido
-(define extend-env
-  (lambda (syms vals const-tags env)
-    (extended-env-record syms (list->vector vals) (list->vector const-tags) env)
-  )
-)
-
-;extend-env-recursively: <list-of symbols> <list-of <list-of symbols>> <list-of expressions> environment -> environment
-;función que crea un ambiente extendido para procedimientos recursivos
-(define extend-env-recursively
-  (lambda (proc-names idss bodies old-env)
-    (let ((len (length proc-names)))
-      (let ((vec (make-vector len)) (const-tags (make-vector len #f)))
-        (let ((env (extended-env-record proc-names vec const-tags old-env)))
-          (for-each
-            (lambda (pos ids body)
-              (vector-set! vec pos (direct-target (closure ids body env)))
-            ) 
-            (iota len) idss bodies
-          ) 
-          env
-        )
-      )
-    )
-  )
-)
-
-;iota: number -> list
-;función que retorna una lista de los números desde 0 hasta end
-(define iota
-  (lambda (end)
-    (let loop ((next 0))
-      (if (>= next end) '()
-        (cons next (loop (+ 1 next)))
-      )
-    )
-  )
-)
-
-;función que busca un símbolo en un ambiente
-(define apply-env
-  (lambda (env sym)
-    (deref (apply-env-ref env sym))
-  )
-)
-
-(define apply-env-ref
-  (lambda (env sym)
-    (cases environment env
-      (empty-env-record () (eopl:error 'apply-env-ref "No binding for ~s" sym))
-      (extended-env-record (syms vals const-tags env)
-        (let ((pos (rib-find-position sym syms)))
-          (if (number? pos)
-            (a-ref pos vals const-tags)
-            (apply-env-ref env sym)
-          )
-        )
-      )
-    )
-  )
-)
-
-;*******************************************************************************************
-;Blancos y Referencias
-
-(define expval?
-  (lambda (x)
-    (cond
-      ([number? x] #t)
-      ([boolean? x] #t)
-      ([procval? x] #t)
-      ([list-type? x] #t)
-      ([dict-type? x] #t)
-      ([tuple-type? x] #t)
-      ([string-type? x] #t)
-      ([hex-type? x] #t)
-      ([circuit-type? x] #t)
-      (else #f)
-    )
-  )
-)
-
-(define ref-to-direct-target?
-  (lambda (x)
-    (and 
-      (reference? x)
-      (cases reference x
-        (a-ref (pos vec const-tags)
-          (cases target (vector-ref vec pos)
-            (direct-target (v) #t)
-            (indirect-target (v) #f)
-          )
-        )
-      )
-    )
-  )
-)
-
-(define deref
-  (lambda (ref)
-    (cases target (primitive-deref ref)
-      (direct-target (expval) expval)
-      (indirect-target (ref1)
-        (cases target (primitive-deref ref1)
-          (direct-target (expval) expval)
-          (indirect-target (p) (eopl:error 'deref "Illegal reference: ~s" ref1))
-        )
-      )
-    )
-  )
-)
-
-(define primitive-deref
-  (lambda (ref)
-    (cases reference ref
-      (a-ref (pos vec const-tags) (vector-ref vec pos))
-    )
-  )
-)
-
-(define setref!
-  (lambda (ref expval env)
-    (let*
-      (
-        [ref 
-          (cases target (primitive-deref ref)
-            (direct-target (expval1) ref)
-            (indirect-target (ref1) ref1)
-          )
-        ]
-        [pos (ref->pos ref)]
-        [const-tags (ref->const-tags ref)]
-        [constant? (vector-ref const-tags pos)]
-      )
-      (if constant?
-        (eopl:error 'setref! "Can't modify the state of a constant var")
-        (primitive-setref! ref (direct-target expval))
-      )
-    )
-  )
-)
-
-(define primitive-setref!
-  (lambda (ref val)
-    (cases reference ref
-      (a-ref (pos vec const-tags) (vector-set! vec pos val))
+; extractor que a partir de un dict-type retorna los valores después del primer valor.
+(define dict-type->vals
+  (lambda (d)
+    (cases dict-type d
+      (a-dict (key val keys vals) vals)
     )
   )
 )
@@ -1725,17 +2136,31 @@
 ;****************************************************************************************
 ;Funciones Auxiliares
 
-; funciones auxiliares para encontrar la posición de un símbolo
-; en la lista de símbolos de un ambiente
 
+; alias para la función list-find-last-position.
 (define rib-find-position 
   (lambda (sym los)
-    (list-find-position sym los)))
+    (list-find-last-position sym los)
+  )
+)
 
-(define list-find-position
+; función auxiliar que retorna la última posición de un símbolo en una lista. Si no encuentra al
+; símbolo retorna #f.
+(define list-find-last-position
   (lambda (sym los)
-    (list-index (lambda (sym1) (eqv? sym1 sym)) los)))
+    (let loop((los los) (curpos 0) (lastpos #f))
+      (cond
+        ((null? los) lastpos)
+        ((eqv? sym (car los))
+         (loop (cdr los) (+ curpos 1) curpos))
+        (else (loop (cdr los) (+ curpos 1) lastpos))
+      )
+    )
+  )
+)
 
+; función auxiliar que retorna el índice del primer elemento de una lista que cumple con el predicado
+; dado. Si no existe tal elemento, retorna #f.
 (define list-index
   (lambda (pred ls)
     (cond
@@ -1779,27 +2204,147 @@
   )
 )
 
-; función auxiliar que a partir de un gate-list retorna el identificador de su último gate
-(define return-last-identifier
-  (lambda (glist)
-    (let ([first (gate-list->first glist)] [rest (gate-list->rest glist)])
-      (if (null? first)
-        (eopl:error 'return-last-identifier "No last identifier for an empty gate-list")
-        (let loop([first first] [rest rest])
-          (if (null? rest)
-            (gate->identifier first)
-            (loop (car rest) (cdr rest))
-          )
-        )
-      )
-    )
-  )
-)
-
+; xor: <bool> <bool> -> <bool>
 ; función utilizada para implementar xor en nuestro lenguaje.
 (define xor 
   (lambda (a b)
     (and (or a b) (not (and a b)))
+  )
+)
+
+; non-negative: <number> -> <bool>
+; función que retorna si un número es no negativo.
+(define non-negative?
+  (lambda (x)
+    (>= x 0)
+  )
+)
+
+; función que aplica eval-rand a una lsita de elementos
+(define eval-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-rand x env)) rands)
+  )
+)
+
+; función que dado una expresión retorna la expresión evaluada en un target. El tipo de target depende
+; de la expresión, si es un var-exp entonces se retorna indirect-target si el valor al que apunta el
+; var-exp es un dict o list, caso contrario se retorna un direct-target. Los demás tipos de expresio-
+; nes se evaluan y sus resultados se retornan como direct-targets.
+(define eval-rand
+  (lambda (rand env)
+    (cases expression rand
+      (var-exp (id)
+        (let* ([ref (apply-env-ref env id)] [expval (ref->terminal-value ref)])
+          (if (or (list-type? expval) (dict-type? expval))
+            (indirect-target 
+              (cases target (primitive-deref ref)
+                (direct-target (expval) ref)
+                (constant-target (expval) ref)
+                (indirect-target (ref1) ref1)
+              )
+            )
+            (direct-target expval)
+          )
+        )
+      )
+      (else (direct-target (eval-expression rand env)))
+    )
+  )
+)
+
+; función que aplica convert-to-exps a una lista de elementos evaluados con eval-expression.
+(define eval-list/tuple/dict-exp-rands
+  (lambda (rands env)
+    (convert-to-exps (map (lambda (x) (eval-expression x env)) rands))
+  )
+)
+
+; función que aplica conver-to-exp a una lista de elementos.
+(define convert-to-exps
+  (lambda (rands)
+    (map (lambda (x) (convert-to-exp x)) rands)
+  )
+)
+
+; función que dado un elemento revisa que tipo de elemento es y lo convierte en la expresión corres-
+; pondiente. El else retorna el rand porque eval-expression retorna o un elemento de scheme o otra
+; expresión y lo que buscamos es convertir un elemento a una expresión.
+(define convert-to-exp
+  (lambda (rand)
+    (cond
+      ([number? rand] (lit-exp rand))
+      ([symbol? rand] (string-exp (a-str rand)))
+      ([procval? rand] (proc-exp rand))
+      ([bool-type? rand] (bool-exp rand))
+      ([string-type? rand] (string-exp rand))
+      ([hex-type? rand] (hex-exp rand))
+      ([list-type? rand] (list-exp rand))
+      ([tuple-type? rand] (tuple-exp rand))
+      ([dict-type? rand] (dict-exp rand))
+      ([circuit-type? rand] (circuit-exp rand)) 
+      (else rand)
+    )
+  )
+)
+
+; función que aplica eval-expression a una lista de elementos.
+(define eval-primapp-exp-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-expression x env)) rands)
+  )
+)
+
+; función que aplica eval-var-exp-rand a una lista de elementos.
+(define eval-var-exp-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-var-exp-rand x env)) rands)
+  )
+)
+
+; función que aplica evalua un elemento con eval-expression y retorna un direct-target con el elemento
+; evaluado.
+(define eval-var-exp-rand
+  (lambda (rand env)
+    (cases expression rand
+      (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (set-list-prim (e1 e2 e3) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (else (direct-target (eval-expression rand env)))
+    )  
+  )
+)
+
+; función que aplica eval-for-exp-rand a cada elemento de una lista.
+(define eval-for-exp-rands
+  (lambda (rands env)
+    (map (lambda(x) (eval-for-exp-rand x env)) rands)
+  )
+)
+
+; función que aplica eval-expression a un elemento y retorna un direct-target con el elemento evaluado.
+(define eval-for-exp-rand
+  (lambda (rand env)
+    (direct-target (eval-expression rand env))
+  )
+)
+
+; similar a eval-var-exp-rands.
+(define eval-const-exp-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-const-exp-rand x env)) rands)
+  )
+)
+
+; similar a eval-var-exp-rand solo que los elementos se envian como un constant-target.
+(define eval-const-exp-rand
+  (lambda (rand env)
+    (cases expression rand
+      (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (set-list-prim (e1 e2 e3) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (else (constant-target (eval-expression rand env)))
+    )  
   )
 )
 
@@ -1809,5 +2354,14 @@
 (scan&parse "var x=1, y=2 in x")
 (scan&parse "const x=1, y=2 in x")
 (scan&parse "rec p(n)=add1(n) in (p 1)")
+(scan&parse "for x in list(1,2,3) do print(x) done")
+(scan&parse "var x=1, y=2 in while <(x, y) do begin set x=add1(x); print(#hola) end done")
+(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=list(1) in begin set-list(x, 0, (factorial 30)); ref-list(x, 0) end")
+(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=tuple((factorial 30)) in ref-tuple(x, 0)")
+(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=dict(x=1) in begin set-dict(x, x, (factorial 30)); ref-dict(x, x) end")
+(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=list() in begin list-append(x, (factorial 30)); x end")
+(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var listFactorials = proc(l1, l2) for x in l1 do list-append(l2, (factorial x)) done, l1 = list(1, 2, 3, 4, 5), l2 = list() in begin (listFactorials l1 l2); dict(valores=l1, factoriales=l2) end")
+(scan&parse "var x=x16(+ 1 2) in begin print(sum-hex(x, x)); print(sub-hex(x,x)); print(mulp-hex(x,x)); print(sub1-hex(x)); print(add1-hex(x)) end")
+(scan&parse "var x=1 in begin print(+(x, x)); print(-(x,x)); print(*(x,x)); print(sub1(x)); print(add1(x)); print(/(x, x)); print(remainder(x, x)) end")
 
-;(interpretador)
+(interpretador)

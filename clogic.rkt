@@ -588,7 +588,7 @@
 
 ; connect 3.2 y 3.3 en B
 
-"let C1 = circuit(gate-list(gate(G1 and input-list(A B)))) C2 = circuit(gate-list(gate(G2 or input-list(A B)) gate(G3 and input-list(A B)) gate(G4 not input-list(G3)) gate(G5 and input-list(G2 G4)))) in connect-circuits(C1, C2, 'B)"
+"var C1 = circuit(gate-list(gate(G1 and input-list(A B)))), C2 = circuit(gate-list(gate(G2 or input-list(A B)) gate(G3 and input-list(A B)) gate(G4 not input-list(G3)) gate(G5 and input-list(G2 G4)))) in connect-circuits(C1, C2, B)"
 
 ;; Ejemplos merge-circuits
 
@@ -598,7 +598,7 @@
 
 ; merge 3.1 y 3.3
 
-"let C1 = circuit(gate-list(gate(G1 not input-list(A)))) C2 = circuit(gate-list(gate(G2 or input-list(A B)) gate(G3 and input-list(A B)) gate(G4 not input-list(G3)) gate(G5 and input-list(G2 G4)))) in merge-circuits(C1, C2, or, 'G6)"
+"var C1 = circuit(gate-list(gate(G1 not input-list(A)))), C2 = circuit(gate-list(gate(G2 or input-list(A B)) gate(G3 and input-list(A B)) gate(G4 not input-list(G3)) gate(G5 and input-list(G2 G4)))) in merge-circuits(C1, C2, and, 'G6)"
 
 ; merge circuitos anteriores
 
