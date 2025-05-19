@@ -172,6 +172,9 @@
 (define grammar-simple-interpreter
   '((program ((arbno class-decl) expression) a-program)
 
+    ;for debugging purposes
+    (expression ("env") env-exp)
+
     ;oop
     (
       class-decl 
@@ -411,6 +414,7 @@
 (define eval-expression
   (lambda (exp env)
     (cases expression exp
+      (env-exp () env)
       (lit-exp (datum) datum)
       (var-exp (id) (apply-env env id))
       (print-exp (exp) 
@@ -452,11 +456,11 @@
       )
 
       (set-exp (id rhs-exp)
-        (begin
-          (setref! (apply-env-ref env id) (eval-expression rhs-exp env))
-          'setted
+        (let ([val (eval-expression rhs-exp env)])
+          (setref! (apply-env-ref env id) val)
+          val
         )
-      )     
+      )
       (begin-exp (exp exps)
         (let loop ((acc (eval-expression exp env)) (exps exps))
           (if (null? exps) 
@@ -468,12 +472,12 @@
       
       ;decls
       (var-decl-exp (ids rands body) 
-        (let* ([args (eval-var-exp-rands rands env)])
+        (let ([args (eval-var-exp-rands rands env)])
           (eval-expression body (extend-env ids args env))
         )
       )
       (const-decl-exp (ids rands body)
-        (let* ([args (eval-const-exp-rands rands env)])
+        (let ([args (eval-const-exp-rands rands env)])
           (eval-expression body (extend-env ids args env))
         )
       )
@@ -824,6 +828,7 @@
       (new-object-exp (class-name rands)
         (let ((args (eval-rands rands env)) (obj (new-object class-name)))
           (find-method-and-apply 'initialize class-name obj args)
+          obj
         )
       )
       (method-app-exp (obj-exp method-name rands)
@@ -976,8 +981,7 @@
   (lambda (m-name m-decls)
     (cond
       ((null? m-decls) #f)
-      ((eqv? m-name (method-decl->method-name (car m-decls)))
-       (car m-decls))
+      ((eqv? m-name (method-decl->method-name (car m-decls))) (car m-decls))
       (else (lookup-method-decl m-name (cdr m-decls)))
     )
   )
@@ -1953,7 +1957,7 @@
       ([string-type? x] #t)
       ([hex-type? x] #t)
       ([circuit-type? x] #t)
-      ([part? x] #t)
+      ([list? x] #t)
       (else #f)
     )
   )
@@ -2129,5 +2133,5 @@
 (scan&parse "var x=1, y=2 in x")
 (scan&parse "const x=1, y=2 in x")
 (scan&parse "rec p(n)=add1(n) in (p 1)")
-
-;(interpretador)
+;class c1 extends object  field x field y  method initialize()  begin set x = 1; set y = 2 end method m1() x method m2() y var o1=new c1() in o1
+(interpretador)
