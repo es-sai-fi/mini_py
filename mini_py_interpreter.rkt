@@ -339,7 +339,8 @@
 (sllgen:make-define-datatypes scanner-spec-simple-interpreter grammar-simple-interpreter)
 
 (define show-the-datatypes
-  (lambda () (sllgen:list-define-datatypes scanner-spec-simple-interpreter grammar-simple-interpreter)))
+  (lambda () (sllgen:list-define-datatypes scanner-spec-simple-interpreter grammar-simple-interpreter))
+)
 
 ;*******************************************************************************************
 ;Parser, Scanner, Interfaz
@@ -357,11 +358,12 @@
 ;El Interpretador (FrontEnd + Evaluación + señal para lectura )
 
 (define interpretador
-  (sllgen:make-rep-loop  "--> "
+  (sllgen:make-rep-loop  
+    "--> "
     (lambda (pgm) (eval-program  pgm)) 
-    (sllgen:make-stream-parser 
-      scanner-spec-simple-interpreter
-      grammar-simple-interpreter)))
+    (sllgen:make-stream-parser scanner-spec-simple-interpreter grammar-simple-interpreter)
+  )
+)
 
 ;*******************************************************************************************
 ;El Interprete
@@ -380,14 +382,6 @@
   )
 )
 
-; Ambiente inicial
-;(define init-env
-;  (lambda ()
-;    (extend-env
-;     '(x y z)
-;     '(4 2 5)
-;     (empty-env))))
-
 (define init-env
   (lambda ()
     (extend-env
@@ -398,19 +392,10 @@
   )
 )
 
-;(define init-env
-;  (lambda ()
-;    (extend-env
-;     '(x y z f)
-;     (list 4 2 5 (closure '(y) (primapp-exp (mult-prim) (cons (var-exp 'y) (cons (primapp-exp (decr-prim) (cons (var-exp 'y) ())) ())))
-;                      (empty-env)))
-;     (empty-env))))
+;**************************************************************************************
 
 ;eval-expression: <expression> <enviroment> -> numero
 ; evalua la expresión en el ambiente de entrada
-
-;**************************************************************************************
-
 (define eval-expression
   (lambda (exp env)
     (cases expression exp
@@ -841,8 +826,6 @@
           (find-method-and-apply method-name (apply-env env '%super) obj args)
         )
       )
-
-      (else exp)
     )
   )
 )
@@ -953,122 +936,154 @@
   )
 )
 
-;**************************************************************************************
-;oop
+;*******************************************************************************************
+;OOP
 
-(define the-class-env '())
-
-(define elaborate-class-decls!
-  (lambda (c-decls)
-    (set! the-class-env c-decls)
+;definición del tipo de dato clase
+(define-datatype class class?
+  (a-class
+    (class-name symbol?)  
+    (super-name symbol?) 
+    (field-length integer?)  
+    (field-ids (list-of symbol?))
+    (methods (list-of method?))
   )
 )
 
-(define lookup-class
+;definición del tipo de dato método
+(define-datatype method method?
+  (a-method (method-decl method-decl?) (super-name symbol?) (field-ids (list-of symbol?)))
+)
+
+;definición del tipo de dato objeto
+(define-datatype object object? 
+  (an-object
+    (class-name symbol?)
+    (fields vector?)
+  )
+)
+
+; variable global que contendrá todas las clases definidas.
+(define the-class-env '())
+
+; función para inicializar el ambiente de clases.
+(define initialize-class-env!
+  (lambda ()
+    (set! the-class-env '())
+  )
+)
+
+; función para agregar una clase al ambiente de clases.
+(define add-to-class-env!
+  (lambda (class)
+    (set! the-class-env (cons class the-class-env))
+  )
+)
+
+; función para elaborar las declaraciones de clase.
+(define elaborate-class-decls!
+  (lambda (c-decls)
+    (initialize-class-env!)
+    (for-each elaborate-class-decl! c-decls)
+  )
+)
+
+; función para elaborar una declaración de clase.
+(define elaborate-class-decl!
+  (lambda (c-decl)
+    (let ((super-name (class-decl->super-name c-decl)))
+      (let ((field-ids  (append (class-name->field-ids super-name) (class-decl->field-ids c-decl))))
+        (add-to-class-env!
+          (a-class
+            (class-decl->class-name c-decl)
+            super-name
+            (length field-ids)
+            field-ids
+            (roll-up-method-decls c-decl super-name field-ids)
+          )
+        )
+      )
+    )
+  )
+)
+
+; función para obtener los métodos de una class-decl.
+(define roll-up-method-decls
+  (lambda (c-decl super-name field-ids)
+    (map
+      (lambda (m-decl) (a-method m-decl super-name field-ids))
+      (class-decl->method-decls c-decl)
+    )
+  )
+)
+
+; función que busca una clase dentro del ambiente de clases.
+(define lookup-class                    
   (lambda (name)
     (let loop ((env the-class-env))
       (cond
         ((null? env) (eopl:error 'lookup-class "Unknown class ~s" name))
-        ((eqv? (class-decl->class-name (car env)) name) (car env))
+        ((eqv? (class->class-name (car env)) name) (car env))
         (else (loop (cdr env)))
       )
     )
   )
 )
 
-;; find a method in a list of method-decls, else return #f
-(define lookup-method-decl 
-  (lambda (m-name m-decls)
-    (cond
-      ((null? m-decls) #f)
-      ((eqv? m-name (method-decl->method-name (car m-decls))) (car m-decls))
-      (else (lookup-method-decl m-name (cdr m-decls)))
-    )
-  )
-)
-
+; función que busca el método asociado al nombre dado y lo aplica al objeto dado.
 (define find-method-and-apply
   (lambda (m-name host-name self args)
-    (if (eqv? host-name 'object)
-      (eopl:error 'find-method-and-apply "No method for name ~s" m-name)
-      (let ((m-decl (lookup-method-decl m-name (class-name->method-decls host-name))))
-        (if (method-decl? m-decl)
-          (apply-method m-decl host-name self args)
-          (find-method-and-apply m-name (class-name->super-name host-name) self args)
+    (let loop((host-name host-name))
+      (if (eqv? host-name 'object)
+        (eopl:error 'find-method-and-apply "No method for name ~s" m-name)
+        (let ((method (lookup-method m-name (class-name->methods host-name))))
+          (if (method? method)
+            (apply-method method host-name self args)
+            (loop (class-name->super-name host-name))
+          )
         )
       )
     )
   )
 )
 
-(define view-object-as
-  (lambda (parts class-name)
-    (if (eqv? (part->class-name (car parts)) class-name)
-      parts
-      (view-object-as (cdr parts) class-name)
+; función que busca el método asociado al nombre dado en una lista de métodos dada.
+(define lookup-method                   
+  (lambda (m-name methods)
+    (cond
+      ((null? methods) #f)
+      ((eqv? m-name (method->method-name (car methods))) (car methods))
+      (else (lookup-method m-name (cdr methods)))
     )
   )
 )
 
+; función que aplica un método a un objeto dado.
 (define apply-method
-  (lambda (m-decl host-name self args)
+  (lambda (method host-name self args) 
     (let 
       (
-        (ids (method-decl->ids m-decl))
-        (body (method-decl->body m-decl))
-        (super-name (class-name->super-name host-name))
+        (ids (method->ids method))
+        (body (method->body method))
+        (super-name (method->super-name method))
+        (field-ids (method->field-ids method))       
+        (fields (object->fields self))
       )
       (eval-expression body
         (extend-env
           (cons '%super (cons 'self ids))
-          (cons super-name (cons self args))
-          (build-field-env (view-object-as self host-name))
+          (cons (direct-target super-name) (cons (direct-target self) args))
+          (extended-env-record field-ids fields (empty-env))
         )
       )
     )
   )
 )
 
-(define build-field-env
-  (lambda (parts)
-    (if (null? parts)
-      (empty-env)
-      (extend-env-refs
-        (part->field-ids (car parts))
-        (part->fields (car parts))
-        (build-field-env (cdr parts))
-      )
-    )
-  )
-)
-
-(define extend-env-refs
-  (lambda (syms vec env)
-    (extended-env-record syms vec env)
-  )
-)
-
-(define-datatype part part? 
-  (a-part (class-name symbol?) (fields vector?))
-)
-
+; función que crea un nuevo objeto de la clase asociada al nombre de clase dado.
 (define new-object
   (lambda (class-name)
-    (if (eqv? class-name 'object)
-      '()
-      (let ((c-decl (lookup-class class-name)))
-        (cons (make-first-part c-decl) (new-object (class-decl->super-name c-decl)))
-      )
-    )
-  )
-)
-
-(define make-first-part
-  (lambda (c-decl)
-    (a-part
-      (class-decl->class-name c-decl)
-      (make-vector (length (class-decl->field-ids c-decl)) (direct-target 0))
-    )
+    (an-object class-name (make-vector (class-name->field-length class-name) (direct-target 0)))
   )
 )
 
@@ -1099,7 +1114,7 @@
 ; estas funciones hacen más amigable el lenguaje permitiendo mostrarle al usuario una traducción de la
 ; sintaxis abstracta que se entrega al trabajar con listas/tuplas/diccionarios.
 
-; función auxiliar utilizada para la implementación de print en el case list-exp. "Imprime" una lista.
+; función utilizada para la implementación de print en el case list-exp. "Imprime" una lista.
 (define print-list
   (lambda (l env)
     (cases list-type l
@@ -1109,7 +1124,7 @@
   )
 )
 
-; función auxiliar utilizada para la implementación de print en el case tuple-exp. "Imprime" una tupla.
+; función utilizada para la implementación de print en el case tuple-exp. "Imprime" una tupla.
 (define print-tuple
   (lambda (t env)
     (cases tuple-type t
@@ -1119,7 +1134,7 @@
   )
 )
 
-; función auxiliar utilizada para la implementación de print en el case dict-exp. "Imprime" un dict.
+; función utilizada para la implementación de print en el case dict-exp. "Imprime" un dict.
 (define print-dict
   (lambda (d env)
     (cases dict-type d
@@ -1135,8 +1150,8 @@
   )
 )
 
-; función auxiliar utilizada para imprimir los keys y vals de un diccionario después del primer par
-; llave, valor.
+; función utilizada para imprimir los keys y vals de un diccionario después del primer par llave,
+; valor.
 (define print-rest-dict-pairs
   (lambda (keys vals env)
     (if (null? keys)
@@ -1264,6 +1279,23 @@
   )
 )
 
+; función que a partir de un gate-list retorna el identificador de su último gate
+(define return-last-identifier
+  (lambda (glist)
+    (let ([first (gate-list->first glist)] [rest (gate-list->rest glist)])
+      (if (null? first)
+        (eopl:error 'return-last-identifier "No last identifier for an empty gate-list")
+        (let loop([first first] [rest rest])
+          (if (null? rest)
+            (gate->identifier first)
+            (loop (car rest) (cdr rest))
+          )
+        )
+      )
+    )
+  )
+)
+
 ; función que reemplaza el input-list de un gate por el resultado de llamar a replace-input-list con
 ; el input-list del gate, el id a reemplazar y el id por el cual se va a reemplazar.
 (define replace-gate-input-list
@@ -1323,7 +1355,7 @@
   )
 )
 
-; función auxiliar que retorna una lista con la representación hexadecimal de un número decimal
+; función que retorna una lista con la representación hexadecimal de un número decimal
 ; (en la práctica solo funciona con enteros).
 (define dec->hex
   (lambda (val)
@@ -1339,17 +1371,6 @@
   )
 )
 
-; función auxiliar que que convierte una representación basada en listas de un hexadecimal a un
-; número decimal (en la práctica retorna solo enteros).
-(define hex->dec
-  (lambda (vals n)
-    (if (null? vals)
-      0
-      (+ (hex->dec (cdr vals) (+ n 1)) (* (car vals) (expt 16 n)))
-    )
-  )
-)
-
 ; función auxiliar utilizada para la implementación de la primitiva hex-to-dec-prim-aux. Retorna el
 ; valor correspondiente a la representación hexadecimal mediante listas ingresada.
 (define hex-to-dec-prim-aux
@@ -1361,7 +1382,18 @@
   )
 )
 
-; función auxiliar que verifica si los valores de un número hexadecimal son válidos.
+; función que convierte una representación basada en listas de un hexadecimal a un
+; número decimal (en la práctica retorna solo enteros).
+(define hex->dec
+  (lambda (vals n)
+    (if (null? vals)
+      0
+      (+ (hex->dec (cdr vals) (+ n 1)) (* (car vals) (expt 16 n)))
+    )
+  )
+)
+
+; función que verifica si los valores de un número hexadecimal son válidos.
 (define valid-hex?
   (lambda (vals)
     (let 
@@ -1374,7 +1406,7 @@
   )
 )
 
-; función auxiliar que verifica si los valores de una lista se encuentran en el rango (-16, 16).
+; función que verifica si los valores de una lista se encuentran en el rango (-16, 16).
 (define valid-hex-range?
   (lambda (vals)
     (cond
@@ -1399,7 +1431,7 @@
 ;*******************************************************************************************
 ;Bools
 
-; función auxixiliar utilizada para implementar procesar types booleanos.
+; función utilizada para procesar types booleanos.
 (define eval-bool-type
   (lambda (b-type env)
     (cases bool-type b-type
@@ -1583,8 +1615,245 @@
 )
 
 ;*******************************************************************************************
+;Procedimientos
+
+;definición del tipo de dato procedimiento
+(define-datatype procval procval?
+  (closure
+   (ids (list-of symbol?))
+   (body expression?)
+   (env environment?)
+  )
+)
+
+;apply-procedure: evalua el cuerpo de un procedimientos en el ambiente extendido correspondiente
+(define apply-procedure
+  (lambda (proc args)
+    (cases procval proc
+      (closure (ids body env) (eval-expression body (extend-env ids args env)))
+    )
+  )
+)
+
+;*******************************************************************************************
+;Ambientes
+
+;definición del tipo de dato ambiente
+(define-datatype environment environment?
+  (empty-env-record)
+  (extended-env-record
+    (syms (list-of symbol?))
+    (vec vector?)
+    (env environment?)
+  )
+)
+
+;empty-env: -> enviroment
+;función que crea un ambiente vacío
+(define empty-env  
+  (lambda ()
+    (empty-env-record) ;llamado al constructor de ambiente vacío 
+  ) 
+)       
+
+
+;extend-env: <list-of symbols> <list-of numbers> enviroment -> enviroment
+;función que crea un ambiente extendido
+(define extend-env
+  (lambda (syms vals env)
+    (extended-env-record syms (list->vector vals) env)
+  )
+)
+
+;extend-env-recursively: <list-of symbols> <list-of <list-of symbols>> <list-of expressions> environment -> environment
+;función que crea un ambiente extendido para procedimientos recursivos
+(define extend-env-recursively
+  (lambda (proc-names idss bodies old-env)
+    (let ((len (length proc-names)))
+      (let ((vec (make-vector len)))
+        (let ((env (extended-env-record proc-names vec old-env)))
+          (for-each
+            (lambda (pos ids body)
+              (vector-set! vec pos (direct-target (closure ids body env)))
+            ) 
+            (iota len) idss bodies
+          ) 
+          env
+        )
+      )
+    )
+  )
+)
+
+;iota: number -> list
+;función que retorna una lista de los números desde 0 hasta end
+(define iota
+  (lambda (end)
+    (let loop ((next 0))
+      (if (>= next end) '()
+        (cons next (loop (+ 1 next)))
+      )
+    )
+  )
+)
+
+;función que busca un símbolo en un ambiente
+(define apply-env
+  (lambda (env sym)
+    (deref (apply-env-ref env sym))
+  )
+)
+
+;función que retorna la referencia de un símbolo en un ambiente.
+(define apply-env-ref
+  (lambda (env sym)
+    (cases environment env
+      (empty-env-record () (eopl:error 'apply-env-ref "No binding for ~s" sym))
+      (extended-env-record (syms vals env)
+        (let ((pos (rib-find-position sym syms)))
+          (if (number? pos)
+            (a-ref pos vals)
+            (apply-env-ref env sym)
+          )
+        )
+      )
+    )
+  )
+)
+
+;**************************************************************************************
+;Blancos y Referencias.
+
+;definición del tipo de dato blanco
+(define-datatype target target?
+  (direct-target (expval expval?))
+  (constant-target (expval expval?))
+  (indirect-target (ref ref-to-direct-target?))
+)
+
+;definición del tipo de dato referencia
+(define-datatype reference reference?
+  (a-ref (position integer?) (vec vector?))
+)
+
+; función que determina si un valor contenido en un target es válido o no. En la práctica, determina
+; que se puede guardar o no en un ambiente.
+(define expval?
+  (lambda (x)
+    (cond
+      ([number? x] #t)
+      ([procval? x] #t)
+      ([bool-type? x] #t)
+      ([list-type? x] #t)
+      ([dict-type? x] #t)
+      ([tuple-type? x] #t)
+      ([string-type? x] #t)
+      ([hex-type? x] #t)
+      ([circuit-type? x] #t)
+      ([object? x] #t)
+      ([symbol? x] #t)
+      (else #f)
+    )
+  )
+)
+
+; función que verifica si una referencia apunta a un target directo o no.
+(define ref-to-direct-target?
+  (lambda (x)
+    (and 
+      (reference? x)
+      (cases reference x
+        (a-ref (pos vec)
+          (cases target (vector-ref vec pos)
+            (direct-target (v) #t)
+            (constant-target (v) #t)
+            (indirect-target (v) #f)
+          )
+        )
+      )
+    )
+  )
+)
+
+; función que verifica si una referencia apunta a un target constante o no.
+(define ref-to-constant-target?
+  (lambda (ref)
+    (cases reference ref
+      (a-ref (pos vec)
+        (cases target (vector-ref vec pos)
+          (direct-target (v) #f)
+          (constant-target (v) #t)
+          (indirect-target (ref) (ref-to-constant-target? ref))
+        )
+      )
+    )
+  )
+)
+
+; función que retorna el valor de una referencia. Abre la referencia y dependiendo de que tipo de
+; target es, retorna el valor de la referencia actual o el de la referencia contenida en el
+; indirect-target.
+(define deref
+  (lambda (ref)
+    (cases target (primitive-deref ref)
+      (direct-target (expval) expval)
+      (constant-target (expval) expval)
+      (indirect-target (ref1)
+        (cases target (primitive-deref ref1)
+          (direct-target (expval) expval)
+          (constant-target (expval) expval)
+          (indirect-target (p) (eopl:error 'deref "Illegal reference: ~s" ref1))
+        )
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para implementar la primitiva deref. Abre la referencia y retorna el
+; valor de esta.
+(define primitive-deref
+  (lambda (ref)
+    (cases reference ref
+      (a-ref (pos vec) (vector-ref vec pos))
+    )
+  )
+)
+
+; función que modifica el valor de una referencia. Abre la referencia y dependiendo de si el valor es
+; un indirect-target o no retorna una referencia u otra, luego, verifica si esta referencia apunta
+; a un target constante o no, si no lo es, se modifica el valor de la referencia.
+(define setref!
+  (lambda (ref expval)
+    (let*
+      (
+        [ref 
+          (cases target (primitive-deref ref)
+            (direct-target (expval1) ref)
+            (constant-target (expval1) ref)
+            (indirect-target (ref1) ref1)
+          )
+        ]
+      )
+      (if (ref-to-constant-target? ref)
+        (eopl:error 'setref! "Can't modify the state of a constant var")
+        (primitive-setref! ref (direct-target expval))
+      )
+    )
+  )
+)
+
+; función auxiliar utilizada para implementar setref!. Modifica el valor de una referencia.
+(define primitive-setref!
+  (lambda (ref val)
+    (cases reference ref
+      (a-ref (pos vec) (vector-set! vec pos val))
+    )
+  )
+)
+;*******************************************************************************************
 ;Extractors
 
+; extractor que a partir de una class-decl retorna su class-name
 (define class-decl->class-name
   (lambda (c-decl)
     (cases class-decl c-decl
@@ -1593,6 +1862,7 @@
   )
 )
 
+; extractor que a partir de una class-decl retorna su super-name
 (define class-decl->super-name
   (lambda (c-decl)
     (cases class-decl c-decl
@@ -1601,6 +1871,7 @@
   )
 )
 
+; extractor que a partir de una class-decl retorna sus field-ids
 (define class-decl->field-ids
   (lambda (c-decl)
     (cases class-decl c-decl
@@ -1609,6 +1880,7 @@
   )
 )
 
+; extractor que a partir de una class-decl retorna sus métodos
 (define class-decl->method-decls
   (lambda (c-decl)
     (cases class-decl c-decl
@@ -1617,6 +1889,7 @@
   )
 )
 
+; extractor que a partir de un method-decl retorna su method-name
 (define method-decl->method-name
   (lambda (md)
     (cases method-decl md
@@ -1625,6 +1898,7 @@
   )
 )
 
+; extractor que a partir de un method-decl retorna su ids
 (define method-decl->ids
   (lambda (md)
     (cases method-decl md
@@ -1633,6 +1907,7 @@
   )
 )
 
+; extractor que a partir de un method-decl retorna su body
 (define method-decl->body
   (lambda (md)
     (cases method-decl md
@@ -1641,67 +1916,162 @@
   )
 )
 
+; extractor que a partir de una lista de method-decls retorna una lista con los nombres de los métodos.
 (define method-decls->method-names
   (lambda (mds)
     (map method-decl->method-name mds)
   )
 )
 
-(define part->class-name
-  (lambda (prt)
-    (cases part prt
-      (a-part (class-name fields) class-name)
+; extractor que a partir de una clase retorna su class-name.
+(define class->class-name
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) class-name)
     )
   )
 )
 
-(define part->fields
-  (lambda (prt)
-    (cases part prt
-      (a-part (class-name fields) fields)
+; extractor que a partir de una clase retorna su super-name.
+(define class->super-name
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) super-name)
     )
   )
 )
 
-(define part->field-ids
-  (lambda (part)
-    (class-decl->field-ids (part->class-decl part))
+; extractor que a partir de una clase retorna su field-length.
+(define class->field-length
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) field-length)
+    )
   )
 )
 
-(define part->class-decl
-  (lambda (part)
-    (lookup-class (part->class-name part))
+; extractor que a partir de una clase retorna sus field-ids.
+(define class->field-ids
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) field-ids)
+    )
   )
 )
 
-(define part->method-decls
-  (lambda (part)
-    (class-decl->method-decls (part->class-decl part))
+; extractor que a partir de una clase retorna sus métodos.
+(define class->methods
+  (lambda (c-struct)
+    (cases class c-struct
+      (a-class (class-name super-name field-length field-ids methods) methods)
+    )
   )
 )
 
-(define part->super-name
-  (lambda (part)
-    (class-decl->super-name (part->class-decl part))
-  )
-)
-
-(define class-name->method-decls
-  (lambda (class-name)
-    (class-decl->method-decls (lookup-class class-name))
-  )
-)
-
+; extractor que a partir de un class-name retorna el super-name de la clase.
 (define class-name->super-name
   (lambda (class-name)
-    (class-decl->super-name (lookup-class class-name))
+    (class->super-name (lookup-class class-name))
   )
 )
 
+; extractor que a partir de un class-name retorna los field-ids de la clase.
+(define class-name->field-ids
+  (lambda (class-name)
+    (if (eqv? class-name 'object) 
+      '()
+      (class->field-ids (lookup-class class-name))
+    )
+  )
+)
+
+; extractor que a partir de un class-name retorna los métodos de la clase.
+(define class-name->methods
+  (lambda (class-name)
+    (if (eqv? class-name 'object) 
+      '()
+      (class->methods (lookup-class class-name))
+    )
+  )
+)
+
+; extractor que a partir de un método retorna su method-decl
+(define method->method-decl
+  (lambda (meth)
+    (cases method meth
+      (a-method (meth-decl super-name field-ids) meth-decl)
+    )
+  )
+)
+
+; extractor que a partir de un método retorna su super-name
+(define method->super-name
+  (lambda (meth)
+    (cases method meth
+      (a-method (meth-decl super-name field-ids) super-name)
+    )
+  )
+)
+
+; extractor que a partir de un método retorna su field-ids
+(define method->field-ids
+  (lambda (meth)
+    (cases method meth
+      (a-method (method-decl super-name field-ids) field-ids)
+    )
+  )
+)
+
+; extractor que a partir de un método retorna su nombre
+(define method->method-name
+  (lambda (method)
+    (method-decl->method-name (method->method-decl method))
+  )
+)
+
+; extractor que a partir de un método retorna su body
+(define method->body
+  (lambda (method)
+    (method-decl->body (method->method-decl method))
+  )
+)
+
+; extractor que a partir de un método retorna su ids
+(define method->ids
+  (lambda (method)
+    (method-decl->ids (method->method-decl method))
+  )
+)
+
+; extractor que a partir de un objeto retorna su class-name
 (define object->class-name
-  (lambda (parts)
-    (part->class-name (car parts))
+  (lambda (obj)
+    (cases object obj
+      (an-object (class-name fields) class-name)
+    )
+  )
+)
+
+; extractor que a partir de un objeto retorna sus fields
+(define object->fields
+  (lambda (obj)
+    (cases object obj
+      (an-object (class-decl fields) fields)
+    )
+  )
+)
+
+; extractor que a partir de un objeto retorna su class-decl
+(define object->class-decl
+  (lambda (obj)
+    (lookup-class (object->class-name obj))
+  )
+)
+
+; extractor que a partir de un objeto retorna sus field-ids
+(define object->field-ids
+  (lambda (object)
+    (class->field-ids (object->class-decl object))
   )
 )
 
@@ -1823,243 +2193,34 @@
   )
 )
 
-;*******************************************************************************************
-;Procedimientos
-(define-datatype procval procval?
-  (closure
-   (ids (list-of symbol?))
-   (body expression?)
-   (env environment?)
-  )
-)
-
-;apply-procedure: evalua el cuerpo de un procedimientos en el ambiente extendido correspondiente
-(define apply-procedure
-  (lambda (proc args)
-    (cases procval proc
-      (closure (ids body env) (eval-expression body (extend-env ids args env)))
-    )
-  )
-)
-
-;**************************************************************************************
-;Definición tipos de datos referencia y blanco.
-
-(define-datatype target target?
-  (direct-target (expval expval?))
-  (constant-target (expval expval?))
-  (indirect-target (ref ref-to-direct-target?))
-)
-
-(define-datatype reference reference?
-  (a-ref (position integer?) (vec vector?))
-)
-
-;*******************************************************************************************
-;Ambientes
-
-;definición del tipo de dato ambiente
-(define-datatype environment environment?
-  (empty-env-record)
-  (extended-env-record
-    (syms (list-of symbol?))
-    (vec vector?)
-    (env environment?)
-  )
-)
-
-(define scheme-value? (lambda (v) #t))
-
-;empty-env:      -> enviroment
-;función que crea un ambiente vacío
-(define empty-env  
-  (lambda ()
-    (empty-env-record) ;llamado al constructor de ambiente vacío 
-  ) 
-)       
-
-
-;extend-env: <list-of symbols> <list-of numbers> enviroment -> enviroment
-;función que crea un ambiente extendido
-(define extend-env
-  (lambda (syms vals env)
-    (extended-env-record syms (list->vector vals) env)
-  )
-)
-
-;extend-env-recursively: <list-of symbols> <list-of <list-of symbols>> <list-of expressions> environment -> environment
-;función que crea un ambiente extendido para procedimientos recursivos
-(define extend-env-recursively
-  (lambda (proc-names idss bodies old-env)
-    (let ((len (length proc-names)))
-      (let ((vec (make-vector len)))
-        (let ((env (extended-env-record proc-names vec old-env)))
-          (for-each
-            (lambda (pos ids body)
-              (vector-set! vec pos (direct-target (closure ids body env)))
-            ) 
-            (iota len) idss bodies
-          ) 
-          env
-        )
-      )
-    )
-  )
-)
-
-;iota: number -> list
-;función que retorna una lista de los números desde 0 hasta end
-(define iota
-  (lambda (end)
-    (let loop ((next 0))
-      (if (>= next end) '()
-        (cons next (loop (+ 1 next)))
-      )
-    )
-  )
-)
-
-;función que busca un símbolo en un ambiente
-(define apply-env
-  (lambda (env sym)
-    (deref (apply-env-ref env sym))
-  )
-)
-
-(define apply-env-ref
-  (lambda (env sym)
-    (cases environment env
-      (empty-env-record () (eopl:error 'apply-env-ref "No binding for ~s" sym))
-      (extended-env-record (syms vals env)
-        (let ((pos (rib-find-position sym syms)))
-          (if (number? pos)
-            (a-ref pos vals)
-            (apply-env-ref env sym)
-          )
-        )
-      )
-    )
-  )
-)
-
-;*******************************************************************************************
-;Blancos y Referencias
-
-(define expval?
-  (lambda (x)
-    (cond
-      ([number? x] #t)
-      ([procval? x] #t)
-      ([bool-type? x] #t)
-      ([list-type? x] #t)
-      ([dict-type? x] #t)
-      ([tuple-type? x] #t)
-      ([string-type? x] #t)
-      ([hex-type? x] #t)
-      ([circuit-type? x] #t)
-      ([list? x] #t)
-      (else #f)
-    )
-  )
-)
-
-(define ref-to-direct-target?
-  (lambda (x)
-    (and 
-      (reference? x)
-      (cases reference x
-        (a-ref (pos vec)
-          (cases target (vector-ref vec pos)
-            (direct-target (v) #t)
-            (constant-target (v) #t)
-            (indirect-target (v) #f)
-          )
-        )
-      )
-    )
-  )
-)
-
-(define ref-to-constant-target?
-  (lambda (ref)
-    (cases reference ref
-      (a-ref (pos vec)
-        (cases target (vector-ref vec pos)
-          (direct-target (v) #f)
-          (constant-target (v) #t)
-          (indirect-target (ref) (ref-to-constant-target? ref))
-        )
-      )
-    )
-  )
-)
-
-(define deref
-  (lambda (ref)
-    (cases target (primitive-deref ref)
-      (direct-target (expval) expval)
-      (constant-target (expval) expval)
-      (indirect-target (ref1)
-        (cases target (primitive-deref ref1)
-          (direct-target (expval) expval)
-          (constant-target (expval) expval)
-          (indirect-target (p) (eopl:error 'deref "Illegal reference: ~s" ref1))
-        )
-      )
-    )
-  )
-)
-
-(define primitive-deref
-  (lambda (ref)
-    (cases reference ref
-      (a-ref (pos vec) (vector-ref vec pos))
-    )
-  )
-)
-
-(define setref!
-  (lambda (ref expval)
-    (let*
-      (
-        [ref 
-          (cases target (primitive-deref ref)
-            (direct-target (expval1) ref)
-            (constant-target (expval1) ref)
-            (indirect-target (ref1) ref1)
-          )
-        ]
-      )
-      (if (ref-to-constant-target? ref)
-        (eopl:error 'setref! "Can't modify the state of a constant var")
-        (primitive-setref! ref (direct-target expval))
-      )
-    )
-  )
-)
-
-(define primitive-setref!
-  (lambda (ref val)
-    (cases reference ref
-      (a-ref (pos vec) (vector-set! vec pos val))
-    )
-  )
-)
-
 ;****************************************************************************************
 ;Funciones Auxiliares
 
-; funciones auxiliares para encontrar la posición de un símbolo
-; en la lista de símbolos de un ambiente
 
+; alias para la función list-find-last-position.
 (define rib-find-position 
   (lambda (sym los)
-    (list-find-position sym los)))
+    (list-find-last-position sym los)
+  )
+)
 
-(define list-find-position
+; función auxiliar que retorna la última posición de un símbolo en una lista. Si no encuentra al
+; símbolo retorna #f.
+(define list-find-last-position
   (lambda (sym los)
-    (list-index (lambda (sym1) (eqv? sym1 sym)) los)))
+    (let loop((los los) (curpos 0) (lastpos #f))
+      (cond
+        ((null? los) lastpos)
+        ((eqv? sym (car los))
+         (loop (cdr los) (+ curpos 1) curpos))
+        (else (loop (cdr los) (+ curpos 1) lastpos))
+      )
+    )
+  )
+)
 
+; función auxiliar que retorna el índice del primer elemento de una lista que cumple con el predicado
+; dado. Si no existe tal elemento, retorna #f.
 (define list-index
   (lambda (pred ls)
     (cond
@@ -2103,27 +2264,22 @@
   )
 )
 
-; función auxiliar que a partir de un gate-list retorna el identificador de su último gate
-(define return-last-identifier
-  (lambda (glist)
-    (let ([first (gate-list->first glist)] [rest (gate-list->rest glist)])
-      (if (null? first)
-        (eopl:error 'return-last-identifier "No last identifier for an empty gate-list")
-        (let loop([first first] [rest rest])
-          (if (null? rest)
-            (gate->identifier first)
-            (loop (car rest) (cdr rest))
-          )
-        )
-      )
-    )
-  )
-)
-
+; xor: <bool> <bool> -> <bool>
 ; función utilizada para implementar xor en nuestro lenguaje.
 (define xor 
   (lambda (a b)
     (and (or a b) (not (and a b)))
+  )
+)
+
+; función auxiliar que a partir de un class-name retorna la cantidad de fields que se requiere para
+; crear un objeto de esa clase.
+(define class-name->field-length
+  (lambda (class-name)
+    (if (eqv? class-name 'object)
+      0
+      (class->field-length (lookup-class class-name))
+    )
   )
 )
 
@@ -2134,4 +2290,5 @@
 (scan&parse "const x=1, y=2 in x")
 (scan&parse "rec p(n)=add1(n) in (p 1)")
 ;class c1 extends object  field x field y  method initialize()  begin set x = 1; set y = 2 end method m1() x method m2() y var o1=new c1() in o1
+;class vehiculo extends object field marca field modelo method initialize(u, v) begin set marca = u; set modelo = v end method getMarca() marca method getModelo() modelo method setMarca(u) set marca = u method setModelo(v) set modelo = v class moto extends vehiculo field cilindraje method initialize(u, v, w) begin super initialize(u, v); set cilindraje = w end method getCilindraje() cilindraje method setCilindraje(w) set cilindraje = w var moto1 = new moto(1, 2, 3) in moto1
 (interpretador)
