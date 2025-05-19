@@ -250,15 +250,13 @@
     (string-type ("#" identifier) a-str)
 
     ;list def
-    (list-type ("list(" expression (arbno "," expression) ")") non-empty-list)
-    (list-type ("empty-list") empty-list)
+    (list-type ("list(" (separated-list expression ",") ")") a-list)
 
     ;tuple def
-    (tuple-type ("tuple(" expression (arbno "," expression) ")") non-empty-tuple)
-    (tuple-type ("empty-tuple") empty-tuple)
+    (tuple-type ("tuple(" (separated-list expression ",") ")") a-tuple)
 
     ;dict def
-    (dict-type ("dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") dict)
+    (dict-type ("dict(" identifier "=" expression (arbno "," identifier "=" expression) ")") a-dict)
     
     ;bool def
     (bool-type ("true") true-bool)
@@ -404,13 +402,7 @@
       (var-exp (id) (apply-env env id))
       (print-exp (exp) 
         (begin
-          (cases expression exp
-            (list-exp (list-type) (print-list list-type env))
-            (tuple-exp (tuple-type) (print-tuple tuple-type env))
-            (dict-exp (dict-type) (print-dict dict-type env))
-            (string-exp (str-type) (display (string-type->str str-type)))
-            (else (display (eval-expression exp env)))
-          )
+          (display (eval-expression exp env))
           (display "\n")
         )
       )
@@ -473,48 +465,49 @@
       )
 
       ;list and list prims
-      (list-exp (l) l)
+      (list-exp (l) (a-list (eval-let-exp-rands (list-type->elements l) env)))
       (empty-list?-prim (exp) 
         (let ([l (eval-expression exp env)])
           (cases list-type l
-            (empty-list () (true-bool))
-            (else (false-bool))
+            (a-list (elements) (if (null? elements) (true-bool) (false-bool)))
           )
         )
       )
       (list?-prim (exp) 
         (let ([l (eval-expression exp env)])
           (cases list-type l
-            (non-empty-list (first rest) (true-bool))
-            (empty-list () (false-bool))
+            (a-list (elements) (true-bool))
           )
         )
       )
       (list-head-prim (e) 
         (let ([l (eval-expression e env)])
           (cases list-type l
-            (non-empty-list (first rest) (eval-expression first env))
-            (empty-list () (eopl:error 'list-head "Cannot apply 'list-head' to an empty list"))
+            (a-list (elements) 
+              (if (null? elements)
+                (eopl:error 'list-head "Cannot apply 'list-head' to an empty list")
+                (eval-expression (car elements) env)
+              )
+            )
           )
         )       
       )
       (list-tail-prim (e)
         (let ([l (eval-expression e env)])
           (cases list-type l
-            (non-empty-list (first rest) 
-              (if (null? rest)
-                (empty-list)
-                (non-empty-list (car rest) (cdr rest))
+            (a-list (elements) 
+              (if (null? elements)
+                (eopl:error 'list-tail "Cannot apply 'list-tail' to an empty list")
+                (a-list (cdr elements))
               )
             )
-            (empty-list () (eopl:error 'list-tail "Cannot apply 'list-tail' to an empty list"))
           )
         )
       )
-      (list-append-prim (e1 e2)
+      #|(list-append-prim (e1 e2)
         (let ([eval-exp-1 (eval-expression e1 env)] [eval-exp-2 (eval-expression e2 env)] [id (var-exp->id e1)])
           (cases list-type eval-exp-1
-            (non-empty-list (f1 r1) 
+            (a-list (elements) 
               (if (list-type? eval-exp-2)
                 (let ([f2 (list-type->first eval-exp-2)] [r2 (list-type->rest eval-exp-2)])
                   (begin
@@ -526,12 +519,6 @@
                   (setref! (apply-env-ref env id) (non-empty-list f1 (append-aux r1 (list e2))))
                   'setted
                 )
-              )
-            )
-            (empty-list () 
-              (begin
-                (setref! (apply-env-ref env id) (non-empty-list e2 empty)) 
-                'setted
               )
             )
           ) 
@@ -640,7 +627,7 @@
             )
           )
         )
-      )
+      )|#
 
       ;string and string prims
       (string-exp (str) str)
@@ -769,7 +756,7 @@
       (bool-exp (exp) (eval-bool-type exp env))
       
       ;for cicle
-      (for-exp (identifier e2 e3)
+      #|(for-exp (identifier e2 e3)
         (cases expression e2
           (var-exp (id)
             (let*
@@ -814,7 +801,7 @@
           )
           (else (eopl:error 'for "Not supported type for iterable"))
         )
-      )
+      )|#
 
       ;while cicle
       (while-exp (test-exp body)
@@ -849,6 +836,7 @@
           (find-method-and-apply method-name (apply-env env '%super) obj args)
         )
       )
+      (else exp)
     )
   )
 )
@@ -888,6 +876,34 @@
       (direct-target (expval) expval)
       (constant-target (expval) expval)
       (indirect-target (ref1) (ref->terminal-value ref1))
+    )
+  )
+)
+
+(define eval-let-exp-rands
+  (lambda (rands env)
+    (convert-to-exps (map (lambda (x) (eval-expression x env)) rands))
+  )
+)
+
+(define convert-to-exps
+  (lambda (rands)
+    (map 
+      (lambda (x) 
+        (cond
+          ([number? x] (lit-exp x))
+          ([symbol? x] (string-exp (a-str x)))
+          ([bool-type? x] (bool-exp x))
+          ([string-type? x] (string-exp x))
+          ([hex-type? x] (hex-exp x))
+          ([list-type? x] (list-exp x))
+          ([tuple-type? x] (tuple-exp x))
+          ([dict-type? x] (dict-exp x))
+          ([circuit-type? x] (circuit-exp x)) 
+          (else x)
+        )
+      ) 
+      rands
     )
   )
 )
@@ -1126,62 +1142,6 @@
         (eval-expression body (extend-env (list id) (list (car args)) env))
         (display "\n")
         (for-exp-aux id (cdr args) body env)  
-      )
-    )
-  )
-)
-
-;*******************************************************************************************
-;print-exp
-
-; estas funciones hacen más amigable el lenguaje permitiendo mostrarle al usuario una traducción de la
-; sintaxis abstracta que se entrega al trabajar con listas/tuplas/diccionarios.
-
-; función utilizada para la implementación de print en el case list-exp. "Imprime" una lista.
-(define print-list
-  (lambda (l env)
-    (cases list-type l
-      (non-empty-list (first rest) (display (eval-primapp-exp-rands (cons first rest) env)))
-      (empty-list () (display 'empty-list))
-    )
-  )
-)
-
-; función utilizada para la implementación de print en el case tuple-exp. "Imprime" una tupla.
-(define print-tuple
-  (lambda (t env)
-    (cases tuple-type t
-      (non-empty-tuple (first rest) (display (eval-primapp-exp-rands (cons first rest) env)))
-      (empty-tuple () (display 'empty-tuple))
-    )
-  )
-)
-
-; función utilizada para la implementación de print en el case dict-exp. "Imprime" un dict.
-(define print-dict
-  (lambda (d env)
-    (cases dict-type d
-      (dict (key val keys vals) 
-        (display 
-          (append-aux 
-            (list (list key (eval-expression val env))) 
-            (print-rest-dict-pairs keys vals env)
-          )
-        )
-      )
-    )
-  )
-)
-
-; función utilizada para imprimir los keys y vals de un diccionario después del primer par llave,
-; valor.
-(define print-rest-dict-pairs
-  (lambda (keys vals env)
-    (if (null? keys)
-      empty
-      (cons 
-        (list (car keys) (eval-expression (car vals) env)) 
-        (print-rest-dict-pairs (cdr keys) (cdr vals) env)
       )
     )
   )
@@ -1573,7 +1533,7 @@
 
 ; función auxiliar utilizada para implementar la primitiva set-list. Retorna una nueva lista donde el
 ; valor en el índice indicado es reemplazado por el nuevo valor indicado.
-(define set-list-aux
+#|(define set-list-aux
   (lambda (l idx val)
     (if (null? l)
       (eopl:error 'set-list "Index out of range")
@@ -1583,7 +1543,7 @@
       )
     )
   )
-)
+)|#
 
 ; función auxiliar que reemplaza el n-ésimo elemento de una lista por el valor indicado.
 (define replace-nth-element
@@ -1615,7 +1575,7 @@
 
 ; función auxiliar utilizada para implementar la primitiva set-dict. Retorna un nuevo dict donde
 ; la llave indicada es reemplazada por el nuevo valor indicado.
-(define set-dict-aux
+#|(define set-dict-aux
   (lambda (key val keys vals search-key new-val)
     (cond 
       ([eqv? search-key key] (dict key new-val keys vals))
@@ -1623,7 +1583,7 @@
       (else (dict key val keys (replace-dict-vals-element keys vals search-key new-val)))
     )
   )
-)
+)|#
 
 ; función auxiliar que recorre desde la segunda key hasta la última y reemplaza el valor 
 ; correspondiente a esa key con el nuevo valor.
@@ -2176,42 +2136,20 @@
   )
 )
 
-; extractor que a partir de un list-type retorna el primer elemento de este.
-(define list-type->first
+; extractor que a partir de un list-type retorna los elementos de este.
+(define list-type->elements
   (lambda (l)
     (cases list-type l
-      (non-empty-list (first rest) first)
-      (empty-list () empty)
+      (a-list (elements) elements)
     )
   )
 )
 
-; extractor que a partir de un list-type retorna todos los elementos menos el primero de este.
-(define list-type->rest
-  (lambda (l)
-    (cases list-type l
-      (non-empty-list (first rest) rest)
-      (empty-list () empty)
-    )
-  )
-)
-
-; extractor que a partir de un tuple-type retorna el primer elemento de este.
-(define tuple-type->first
+; extractor que a partir de un tuple-type retorna los elementos de este.
+(define tuple-type->elements
   (lambda (t)
     (cases tuple-type t
-      (non-empty-tuple (first rest) first)
-      (empty-tuple () empty)
-    )
-  )
-)
-
-; extractor que a partir de un tuple-type retorna todos los elementos menos el primero de este.
-(define tuple-type->rest
-  (lambda (t)
-    (cases tuple-type t
-      (non-empty-tuple (first rest) rest)
-      (empty-tuple () empty)
+      (a-tuple (elements) elements)
     )
   )
 )
