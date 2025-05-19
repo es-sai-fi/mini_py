@@ -195,11 +195,11 @@
     (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
 
     ;conditionals
-    (expression ("if" bool-type "then" expression "else" expression "end") if-exp)
+    (expression ("if" expression "then" expression "else" expression "end") if-exp)
 
     ;cicles
     (expression ("for" identifier "in" expression "do" expression "done") for-exp)
-    (expression ("while" bool-type "do" expression "done") while-exp)
+    (expression ("while" expression "do" expression "done") while-exp)
 
     ;procs
     (expression ("begin" expression (arbno ";" expression) "end") begin-exp)
@@ -228,10 +228,10 @@
 
     ;gate-list def
     (gate-list ("empty-gate-list") empty-gate-list)
-    (gate-list ("gate-list" "(" gate (arbno "," gate) ")") a-gate-list)
+    (gate-list ("gate-list" "(" gate (arbno gate) ")") a-gate-list)
 
     ;gate def
-    (gate ("gate(" identifier "," type "," input-list ")") a-gate)
+    (gate ("gate(" identifier type input-list ")") a-gate)
 
     (type ("and") and-type)
     (type ("or") or-type)
@@ -240,7 +240,7 @@
 
     ;input-list def
     (input-list ("empty-input-list") empty-input-list)
-    (input-list ("input-list(" expression (arbno  "," expression) ")") an-input-list)
+    (input-list ("input-list(" expression (arbno expression) ")") an-input-list)
 
     ;hex def
     (hex-type ("x16(-" (arbno number) ")") neg-hex)
@@ -270,7 +270,7 @@
     (bool-type (un-prim "(" expression ")") un-prim-app)
 
     ;lists prims
-    (expression ("empty-list?" "(" list-type ")") empty-list?-prim)
+    (expression ("empty-list?" "(" expression ")") empty-list?-prim)
     (expression ("list?" "(" expression ")") list?-prim)
     (expression ("list-append" "(" expression "," expression ")") list-append-prim)
     (expression ("list-head" "(" expression ")") list-head-prim)
@@ -279,7 +279,7 @@
     (expression ("set-list" "(" expression "," expression "," expression ")") set-list-prim)
 
     ;tuples prims
-    (expression ("empty-tuple?" "(" tuple-type ")") empty-tuple?-prim)
+    (expression ("empty-tuple?" "(" expression ")") empty-tuple?-prim)
     (expression ("tuple?" "(" expression ")") tuple?-prim)
     (expression ("tuple-head" "(" expression ")") tuple-head-prim)
     (expression ("tuple-tail" "(" expression ")") tuple-tail-prim)
@@ -419,11 +419,13 @@
           (apply-primitive prim args)
         )
       )
-      (if-exp (b-type true-exp false-exp)
-        (cases bool-type (eval-bool-type b-type env)
-          (true-bool () (eval-expression true-exp env))  
-          (false-bool () (eval-expression false-exp env))
-          (else empty)
+      (if-exp (test-exp true-exp false-exp)
+        (let ([eval-test-exp (eval-expression test-exp env)])
+          (cases bool-type eval-test-exp
+            (true-bool () (eval-expression true-exp env))  
+            (false-bool () (eval-expression false-exp env))
+            (else empty)
+          )
         )
       )
       (proc-exp (ids body) (closure ids body env))
@@ -475,16 +477,16 @@
       (empty-list?-prim (exp) 
         (let ([l (eval-expression exp env)])
           (cases list-type l
-            (empty-list () #t)
-            (else #f)
+            (empty-list () (true-bool))
+            (else (false-bool))
           )
         )
       )
       (list?-prim (exp) 
         (let ([l (eval-expression exp env)])
           (cases list-type l
-            (non-empty-list (first rest) #t)
-            (empty-list () #t)
+            (non-empty-list (first rest) (true-bool))
+            (empty-list () (false-bool))
           )
         )
       )
@@ -769,6 +771,27 @@
       ;for cicle
       (for-exp (identifier e2 e3)
         (cases expression e2
+          (var-exp (id)
+            (let*
+              (
+                [l/t-type (apply-env env id)] 
+                [first 
+                  (if (list-type? l/t-type) 
+                    (list-type->first l/t-type)
+                    (tuple-type->first l/t-type)
+                  )
+                ] 
+                [rest 
+                  (if (list-type? l/t-type)
+                    (list-type->rest l/t-type)
+                    (tuple-type->rest l/t-type)
+                  )
+                ]
+                [vals (eval-for-exp-rands (cons first rest) env)]
+              )
+              (for-exp-aux identifier vals e3 env)
+            )
+          )
           (list-exp (list-type) 
             (let* 
               (
@@ -794,13 +817,13 @@
       )
 
       ;while cicle
-      (while-exp (b-type body)
-        (let loop ([eval-b-type (eval-bool-type b-type env)])
-          (cases bool-type eval-b-type
+      (while-exp (test-exp body)
+        (let loop ([eval-test-exp (eval-expression test-exp env)])
+          (cases bool-type eval-test-exp
             (true-bool ()              
               (begin
                 (eval-expression body env)
-                (loop (eval-bool-type b-type env))
+                (loop (eval-expression test-exp env))
               )
             )
             (false-bool () 'done)
