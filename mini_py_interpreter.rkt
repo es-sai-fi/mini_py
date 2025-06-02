@@ -1099,10 +1099,30 @@
         (cases input-list i-list
           (an-input-list (first rest) 
             (cases type t
-              (and-type () (and (eval-expression first env) (eval-expression (car rest) env)))
-              (or-type () (or (eval-expression first env) (eval-expression (car rest) env)))
-              (not-type () (not (eval-expression first env)))
-              (xor-type () (xor (eval-expression first env) (eval-expression (car rest) env)))
+              (and-type () 
+                (if (and (eval-expression first env) (eval-expression (car rest) env))
+                  (true-bool)
+                  (false-bool)
+                )
+              )
+              (or-type () 
+                (if (or (eval-expression first env) (eval-expression (car rest) env))
+                  (true-bool)
+                  (false-bool)
+                )
+              )
+              (not-type () 
+                (if (not (eval-expression first env))
+                  (true-bool)
+                  (false-bool)
+                )
+              )
+              (xor-type () 
+                (if (xor (eval-expression first env) (eval-expression (car rest) env))
+                  (true-bool)
+                  (false-bool)
+                )
+              )
             )
           )
           (empty-input-list () (eopl:error 'eval-gate "No evaluation for gate with no inputs"))
@@ -1123,7 +1143,7 @@
           (let*   
             (
               [res (eval-gate first env)] 
-              [newEnv (extend-env (list (gate->identifier first)) (list (direct-target res)) (list #t) env)]
+              [newEnv (extend-env (list (gate->identifier first)) (list (direct-target res)) env)]
             )
             (if (null? rest) 
               res
@@ -2375,17 +2395,72 @@
 ;******************************************************************************************
 ;Ejemplos de sintaxis
 
+;declarations
 (scan&parse "var x=1, y=2 in x")
 (scan&parse "const x=1, y=2 in x")
 (scan&parse "rec p(n)=add1(n) in (p 1)")
+
+;for cycles
 (scan&parse "for x in list(1,2,3) do print(x) done")
+
+;while cycles
 (scan&parse "var x=1, y=2 in while <(x, y) do begin set x=add1(x); print(#hola) end done")
+
+;list and list prims
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=list(1) in begin set-list(x, 0, (factorial 30)); ref-list(x, 0) end")
-(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=tuple((factorial 30)) in ref-tuple(x, 0)")
-(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=dict(x=1) in begin set-dict(x, x, (factorial 30)); ref-dict(x, x) end")
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=list() in begin list-append(x, (factorial 30)); x end")
+(scan&parse "var x=list(3, 2, 1) in list-tail(x)")
+(scan&parse "var x=list(3, 2, 1) in list-head(x)")
+(scan&parse "var x=list(3, 2, 1) in list-to-tuple(x)")
+(scan&parse "var x=list(3, 2, 1) in list?(x)")
+(scan&parse "var x=list(3, 2, 1) in empty-list?(x)")
+
+;tuple and tuple prims
+(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=tuple((factorial 30)) in ref-tuple(x, 0)")
+(scan&parse "var x=tuple(3, 2, 1) in tuple-tail(x)")
+(scan&parse "var x=tuple(3, 2, 1) in tuple-head(x)")
+(scan&parse "var x=tuple(3, 2, 1) in tuple-to-list(x)")
+(scan&parse "var x=tuple(3, 2, 1) in tuple?(x)")
+(scan&parse "var x=tuple(3, 2, 1) in empty-tuple?(x)")
+
+;dict and dict prims
+(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var x=dict(x=1) in begin set-dict(x, x, (factorial 30)); ref-dict(x, x) end")
+(scan&parse "var x=dict(x=1) in dict?(x)")
+
+;example using decls, procs, dicts, and lists
 (scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var listFactorials = proc(l1, l2) for x in l1 do list-append(l2, (factorial x)) done, l1 = list(1, 2, 3, 4, 5), l2 = list() in begin (listFactorials l1 l2); dict(valores=l1, factoriales=l2) end")
+
+;hex and hex prims
 (scan&parse "var x=x16(+ 1 2) in begin print(sum-hex(x, x)); print(sub-hex(x,x)); print(mulp-hex(x,x)); print(sub1-hex(x)); print(add1-hex(x)); print(div-hex(x, x)); print(modulo-hex(x, x)) end")
+(scan&parse "var x=x16(+ 3 2) in begin print(hex-to-dec(x)); set x = hex-to-dec(x); print(dec-to-hex(x)) end")
+
+;int/float and int/float prims
 (scan&parse "var x=1 in begin print(+(x, x)); print(-(x,x)); print(*(x,x)); print(sub1(x)); print(add1(x)); print(/(x, x)); print(modulo(x, x)) end")
+
+;str and str prims
+(scan&parse "var x=#hola in str-concat(x, x)")
+(scan&parse "var x=#hola in str-len(x)")
+
+;bool and bool prims
+(scan&parse "true")
+(scan&parse "false")
+(scan&parse "and(false, false)")
+(scan&parse "or(false, false)")
+(scan&parse "not(false)")
+(scan&parse "==(true, true)")
+(scan&parse "!=(true, true)")
+(scan&parse "<(5,4)")
+(scan&parse ">(5,4)")
+(scan&parse "<=(5,4)")
+(scan&parse ">=(5,4)")
+
+;circuit and circuit prims
+(scan&parse "var A = true, C1 = circuit(gate-list(gate(G1 not input-list(A)))) in eval-circuit(C1)")
+(scan&parse "var C1 = circuit(gate-list(gate(G1 not input-list(A)))), C2 = circuit(gate-list(gate(G2 and input-list(A B)))) in connect-circuits(C1, C2, A)")
+(scan&parse "var C1 = circuit(gate-list(gate(G1 not input-list(A)))), C2 = circuit(gate-list(gate(G2 and input-list(A B)))) in merge-circuits(C1, C2, and, G3)")
+(scan&parse "var A = true, B = true, C1 = circuit(gate-list(gate(G1 or input-list(A B)) gate(G2 and input-list(A B)) gate(G3 not input-list(G2)) gate(G4 and input-list(G1 G3)))) in eval-circuit(C1)")
+
+;OOP
+(scan&parse "class animal extends object field nombre method initialize(x) set nombre = x method getNombre() nombre class perro extends animal field apodo method initialize(x, y) begin super initialize(x); set apodo = y end method getApodo() apodo var a = new perro(#perro, #crespos) in send a getNombre()")
 
 (interpretador)
