@@ -1812,6 +1812,22 @@
 ;*******************************************************************************************
 ;Extractors
 
+(define procval->ids
+  (lambda (proc)
+    (cases procval proc
+      (closure (ids body env) ids)
+    )
+  )
+)
+
+(define procval->body
+  (lambda (proc)
+    (cases procval proc
+      (closure (ids body env) body)
+    )
+  )
+)
+
 ; extractor que a partir de una class-decl retorna su class-name
 (define class-decl->class-name
   (lambda (c-decl)
@@ -2319,7 +2335,7 @@
     (cond
       ([number? rand] (lit-exp rand))
       ([symbol? rand] (string-exp (a-str rand)))
-      ([procval? rand] (proc-exp rand))
+      ([procval? rand] (proc-exp (procval->ids rand) (procval->body rand)))
       ([bool-type? rand] (bool-exp rand))
       ([string-type? rand] (string-exp rand))
       ([hex-type? rand] (hex-exp rand))
@@ -2462,5 +2478,6 @@
 
 ;OOP
 (scan&parse "class animal extends object field nombre method initialize(x) set nombre = x method getNombre() nombre class perro extends animal field apodo method initialize(x, y) begin super initialize(x); set apodo = y end method getApodo() apodo var a = new perro(#perro, #crespos) in send a getNombre()")
+(scan&parse "var vehiculo = proc(a, b) var estado = dict(marca=a,modelo=b) in var a = proc() ref-dict(estado, marca), b = proc() ref-dict(estado, modelo), c = proc(a) set-dict(estado, marca, a), d = proc(b) set-dict(estado, modelo, b) in dict(getMarca=a, getModelo=b, setMarca=c, setModelo=d) in var x = (vehiculo #xd #xd) in x")
 
 (interpretador)
