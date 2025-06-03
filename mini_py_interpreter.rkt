@@ -2370,6 +2370,7 @@
       (set-exp (id val) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
       (set-list-prim (e1 e2 e3) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
       (set-dict-prim (e1 id e2) (eopl:error 'eval-let/var/const-rand "Can't use set on a declaration"))
+      (env-exp ()  (eopl:error 'eval-let/var/const-rand "Can't use env on a declaration"))
       (else (direct-target (eval-expression rand env)))
     )  
   )
