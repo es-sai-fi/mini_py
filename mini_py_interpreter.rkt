@@ -2479,6 +2479,46 @@
 
 ;OOP
 (scan&parse "class animal extends object field nombre method initialize(x) set nombre = x method getNombre() nombre class perro extends animal field apodo method initialize(x, y) begin super initialize(x); set apodo = y end method getApodo() apodo var a = new perro(#perro, #crespos) in send a getNombre()")
-(scan&parse "var vehiculo = proc(a, b) var estado = dict(marca=a,modelo=b) in var a = proc() ref-dict(estado, marca), b = proc() ref-dict(estado, modelo), c = proc(a) set-dict(estado, marca, a), d = proc(b) set-dict(estado, modelo, b) in dict(getMarca=a, getModelo=b, setMarca=c, setModelo=d) in var x = (vehiculo #xd #xd) in x")
+
+;Sustentación
+
+;2
+(scan&parse "var a=1, b=1.1, c=circuit(empty-gate-list), d=x16(+ 1 1), e=#hola, f=true, g=proc(n) add1(n), h=list(3,2,1), i=dict(x=1), j=tuple(3,2,1) in begin print(a); print(b); print(c); print(d); print(e); print(f); print(g); print(h); print(i); print(j) end")
+
+;3
+(scan&parse "var x=1000 in begin print(x); set x=200; print(x) end")
+
+;4
+(scan&parse "const c=1000 in c")
+(scan&parse "const c=1000 in set c=2")
+
+;5
+(scan&parse "var a=1, b=2.5, c=x16(+ 2 3) in begin print(+(a,a)); print(-(a,a)); print(*(a,a)); print(modulo(a,a)); print(/(a,a)); print(sub1(a)); print(add1(a)); print(+(b,b)); print(-(b,b)); print(*(b,b)); print(/(b,b)); print(sub1(b)); print(add1(b)); print(sum-hex(c,c)); print(sub-hex(c,c)); print(add1-hex(c)); print(sub1-hex(c)); print(mulp-hex(c,c)); print(div-hex(c,c)); print(modulo-hex(c,c)) end")
+
+;6
+(scan&parse "begin print(<(5,5)); print(>(5,5)); print(<=(5,5)); print(>=(5,5)); print(==(5,5)); print(!=(5,5)) end")
+
+;7
+(scan&parse "var x=#hola in begin print(str-len(x)); str-concat(x, x) end")
+
+;8
+(scan&parse "var x=list(3), y=50, z=dict(x=30), w=#hola, F1=proc(a) set-list(a,0,1), F2=proc(b) set b=60, F3=proc(c) set-dict(c, x, 50), F4=proc(d) set d=#holahola in begin (F1 x); (F2 y); (F3 z); (F4 w); print(list(x, y, z, w)); print(x); print(y); print(z); print(w) end")
+
+;9
+(scan&parse "rec factorial(n) = if ==(n, 0) then 1 else *(n, (factorial -(n, 1))) end in var listFactorials = proc(l1, l2) for x in l1 do list-append(l2, (factorial x)) done in var registroFactorials = proc(l1, l2) var valsTuple = list-to-tuple(l1) in begin (listFactorials l1 l2); dict(valores=valsTuple, factoriales=l2) end, l1 = list(1, 2, 3, 4, 5), l2 = list() in (registroFactorials l1 l2)")
+
+;10
+(scan&parse "for x in tuple(1,2,3,4,5) do print(/(1,x)) done")
+
+(scan&parse "var x=1, esPar?=proc(n) ==(0, modulo(n, 2)) in while <=(x,5) do begin print((esPar? x)); set x = add1(x) end done")
+
+;11
+(scan&parse "var C1 = circuit(gate-list(gate(G1 and input-list(A B)))), C2 = circuit(gate-list(gate(G2 or input-list(A B)) gate(G3 and input-list(A B)) gate(G4 not input-list(G3)) gate(G5 and input-list(G2 G4)))), C3 = circuit(gate-list(gate(G1 not input-list(A)))), C4 = circuit(gate-list(gate(G2 or input-list(A B)) gate(G3 and input-list(A B)) gate(G4 not input-list(G3)) gate(G5 and input-list(G2 G4)))) in var c = dict(Circuit1 = connect-circuits(C1, C2, B), Circuit2 = merge-circuits(C3, C4, and, G6)) in c")
+
+;12
+(scan&parse "var vehiculo = proc(a, b) var estado = dict(marca=a,modelo=b) in var getMarca = proc() ref-dict(estado, marca), getModelo = proc() ref-dict(estado, modelo), setMarca = proc(a) set-dict(estado, marca, a), setModelo = proc(b) set-dict(estado, modelo, b) in var dispatcher = proc(msg) if ==(msg, #getMarca) then (getMarca) else if ==(msg, #setMarca) then setMarca else if ==(msg, #getModelo) then (getModelo) else if ==(msg, #setModelo) then setModelo else print(#Error) end end end end in dispatcher in var moto = proc(a, b, c) var vehiculo = (vehiculo a b) in var cilindraje = c in var getCilindraje = proc() cilindraje, setCilindraje = proc(c) set cilindraje = c in var dispatcher = proc(msg) if ==(msg, #getCilindraje) then (getCilindraje) else if ==(msg, #setCilindraje) then setCilindraje else (vehiculo msg) end end in dispatcher in var m1 = (moto #a #b #c), m2 = (moto #d #e #f), m3 = (moto #g #h #i) in begin print((m1 #getModelo)); ((m1 #setModelo) 400); print((m1 #getModelo)); print((m2 #getCilindraje)); ((m2 #setCilindraje) 500); print((m2 #getCilindraje)) end")
+
+;13
+(scan&parse "class vehiculo extends object field marca field modelo method initialize(u, v) begin set marca = u; set modelo = v end method getMarca() marca method getModelo() modelo method setMarca(u) set marca = u method setModelo(v) set modelo = v class moto extends vehiculo field cilindraje method initialize(u, v, w) begin super initialize(u, v); set cilindraje = w end method getCilindraje() cilindraje method setCilindraje(w) set cilindraje = w var m1 = new moto(#audi, 0, 50), m2 = new moto(#audi, 1, 100), m3 = new moto(#audi, 2, 150) in begin send m1 setModelo(1); send m2 setModelo(2); send m3 setModelo(3); print(send m1 getModelo()); print(send m2 getModelo()) end")
 
 (interpretador)
